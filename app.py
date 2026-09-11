@@ -77,9 +77,10 @@ def bump(product_id: str, delta: int) -> None:
     st.session_state[key] = max(0, int(st.session_state.get(key, 0)) + delta)
 
 
-def clear_cart() -> None:
-    for key in [k for k in st.session_state if k.startswith("qty_")]:
-        st.session_state[key] = 0
+# Code du lien personnel (.../?c=XXXXXXXX), lu dès le début : l'écran de
+# confirmation s'en sert pour reproposer un lien vers la bonne page.
+access_code = (st.query_params.get("c") or "").strip().upper()
+order_page_href = f"/?c={access_code}" if access_code else "/"
 
 
 # ------------------------------------------------------------------
@@ -115,10 +116,15 @@ if st.session_state.get("mk_receipt"):
         if receipt.get("notes"):
             st.caption(f"Notes : {receipt['notes']}")
 
-    if st.button("Passer une nouvelle commande", type="primary", width="stretch"):
-        clear_cart()
-        st.session_state.pop("mk_receipt", None)
-        st.rerun()
+    # Volontairement un LIEN et non un bouton : il recharge la page, donc il
+    # fonctionne même si la connexion temps réel de Streamlit a été coupée
+    # (auquel cas tous les boutons de la page deviennent inertes). Il repart
+    # aussi d'une session vierge, sans panier résiduel à nettoyer.
+    st.markdown(
+        f'<a class="mk-btn-link" href="{order_page_href}" target="_self">'
+        "Passer une nouvelle commande</a>",
+        unsafe_allow_html=True,
+    )
     footer()
     st.stop()
 
@@ -145,10 +151,7 @@ if not products:
     st.stop()
 
 # --- Qui commande ? Le lien personnel répond déjà ------------------
-# Le code arrive dans l'URL (.../?c=XXXXXXXX). Aucune liste n'est chargée :
-# on ne résout qu'un code à la fois, côté serveur.
-access_code = (st.query_params.get("c") or "").strip().upper()
-
+# Aucune liste n'est chargée : on ne résout qu'un code à la fois, côté serveur.
 selected: dict | None = None
 lookup_error: str | None = None
 if access_code:
@@ -380,6 +383,7 @@ if send:
 st.markdown(
     f'<div class="mk-foot">{BRAND["name"]} — aucun paiement n\'est traité ici. '
     f'Vous serez contacté(e) pour la confirmation.<br/>'
-    f'<a href="{BRAND["site"]}" target="_blank">{BRAND["site"].replace("https://", "")}</a></div>',
+    f'<a href="{BRAND["site"]}" target="_blank">{BRAND["site"].replace("https://", "")}</a>'
+    '<br/><a class="mk-admin-link" href="/Tableau_de_bord" target="_self">Gestion</a></div>',
     unsafe_allow_html=True,
 )
