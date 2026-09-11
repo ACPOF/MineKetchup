@@ -1,0 +1,15 @@
+# Thème Mine de Ketchup (sombre, chaleureux, artisanal).
+# Le reste de l'habillage est dans lib/branding.py.
+[theme]
+base = "dark"
+primaryColor = "#D8452F"
+backgroundColor = "#14100E"
+secondaryBackgroundColor = "#1D1815"
+textColor = "#F4ECE2"
+font = "sans serif"
+
+[client]
+showErrorDetails = true
+
+[browser]
+gatherUsageStats = false

@@ -1,45 +1,61 @@
-# App de commandes — détaillants → producteur
+# Mine de Ketchup — commandes détaillants
 
-Petite application Streamlit qui permet à vos détaillants de vous envoyer
-leurs commandes en ligne, sans identification et sans paiement. Vous
-consultez et gérez les commandes reçues dans un tableau de bord protégé
-par mot de passe.
+Application Streamlit + Supabase qui permet aux détaillants **déjà connus** de
+Mine de Ketchup d'envoyer leurs commandes en ligne, **sans compte, sans mot de
+passe et sans paiement**.
+
+Le principe : le producteur enregistre un détaillant **une seule fois** dans le
+tableau de bord ; ensuite, ce détaillant commande en **3 clics** :
+
+1. il se choisit dans la liste déroulante,
+2. il ajuste les quantités avec les gros boutons `+` / `−`,
+3. il envoie.
+
+Aucune coordonnée n'est retapée à chaque commande.
 
 ## Structure du projet
 
 ```
-commande-app/
-├── app.py                        # Page publique : formulaire de commande
+MineKetchup/
+├── app.py                        # Page publique : commande en 3 clics
 ├── pages/
-│   └── 1_Tableau_de_bord.py      # Page admin (protégée par mot de passe)
+│   └── 1_Tableau_de_bord.py      # Admin : commandes + produits + détaillants
 ├── lib/
-│   └── supabase_client.py        # Connexion à Supabase
-├── supabase_schema.sql           # Script SQL à exécuter dans Supabase
+│   ├── supabase_client.py        # Connexion à Supabase (clé anon / service_role)
+│   └── branding.py               # Palette, CSS et composants d'habillage partagés
+├── supabase_schema.sql           # Script SQL à exécuter dans Supabase (idempotent)
 ├── requirements.txt
 ├── .streamlit/
+│   ├── config.toml               # Thème sombre Mine de Ketchup
 │   └── secrets.toml.example      # Modèle des secrets à configurer
 └── README.md
 ```
 
 ## 1. Configurer Supabase
 
-1. Dans votre projet Supabase (ou un nouveau projet), allez dans
-   **SQL Editor** → **New query**.
-2. Collez le contenu de `supabase_schema.sql` et exécutez-le. Cela crée
-   les tables `products`, `orders`, `order_items`, active la sécurité au
-   niveau des lignes (RLS) et insère 3 produits d'exemple.
-3. Allez dans **Project Settings → API** et notez :
+1. Dans votre projet Supabase : **SQL Editor** → **New query**.
+2. Collez le contenu de `supabase_schema.sql` et exécutez-le.
+   Le script est **idempotent** : on peut le relancer sur une base existante
+   sans perdre les commandes déjà reçues. Il crée / met à jour :
+   - la table **`retailers`** (les détaillants de la liste déroulante) ;
+   - la vue **`retailers_public`** (id + nom du commerce seulement) ;
+   - la colonne **`orders.retailer_id`** et rend `orders.retailer_name`
+     optionnel (il ne sert plus que de secours) ;
+   - la colonne **`products.image_url`** ;
+   - les policies RLS ;
+   - le catalogue des 7 vrais produits (les 3 produits d'exemple sont retirés).
+3. **Project Settings → API**, notez :
    - **Project URL** → `SUPABASE_URL`
    - **anon / public key** → `SUPABASE_ANON_KEY`
-   - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (⚠️ gardez-la secrète,
-     elle donne un accès complet à la base de données)
+   - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (⚠️ secrète)
 
-## 2. Configurer les secrets de l'app
+## 2. Configurer les secrets
 
-Copiez `.streamlit/secrets.toml.example` vers `.streamlit/secrets.toml`
-et remplissez les 4 valeurs (URL, anon key, service_role key, mot de passe
-admin de votre choix). Ce fichier ne doit jamais être partagé publiquement
-ni ajouté à un dépôt Git public — `.gitignore` l'exclut déjà.
+Copiez `.streamlit/secrets.toml.example` vers `.streamlit/secrets.toml` et
+remplissez les 4 valeurs. **Aucun nouveau secret n'a été ajouté** par la version
+« détaillants enregistrés » : la table `retailers` et la vue `retailers_public`
+utilisent les mêmes clés. Ce fichier ne doit jamais être committé — `.gitignore`
+l'exclut déjà.
 
 ## 3. Tester en local
 
@@ -48,59 +64,90 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-- La page principale (`http://localhost:8501`) est le formulaire de
-  commande, destiné aux détaillants.
-- Le tableau de bord admin est accessible via le menu de gauche
-  ("Tableau de bord") ou `http://localhost:8501/Tableau_de_bord`.
+- `http://localhost:8501` → page de commande (ce que voient les détaillants).
+- `http://localhost:8501/Tableau_de_bord` → tableau de bord, protégé par
+  `ADMIN_PASSWORD`.
 
-## 4. Gérer le catalogue de produits
+## 4. Démarrer : saisir vos détaillants
 
-Le plus simple est d'éditer directement la table `products` dans
-Supabase (**Table Editor**) :
-- `name`, `description`, `category`, `unit`, `price` : ce qui s'affiche
-  aux détaillants.
-- `is_active` : mettre à `false` pour retirer un produit sans l'effacer.
-- `sort_order` : contrôle l'ordre d'affichage (plus petit = plus haut).
+C'est la seule étape manuelle avant que tout roule tout seul.
 
-Si vous préférez gérer le catalogue directement depuis l'app plus tard
-(sans passer par Supabase), on peut ajouter une page admin pour ça —
-dites-le-moi.
+Tableau de bord → onglet **🏪 Détaillants** → **➕ Ajouter un détaillant** :
+nom du commerce (obligatoire), contact, téléphone, courriel, notes internes.
 
-## 5. Déployer
+Dès qu'un détaillant est dans la liste, il apparaît dans la liste déroulante de
+la page de commande et peut commander en 3 clics. Pour retirer un détaillant de
+la liste sans perdre son historique : bouton **Désactiver**.
 
-Option recommandée, gratuite et simple : **Streamlit Community Cloud**
-(puisque vous utilisez déjà Streamlit) :
+> Les téléphones et courriels saisis ici ne sont **jamais** exposés à la page
+> publique : celle-ci ne lit que la vue `retailers_public`, qui ne contient que
+> l'id et le nom du commerce.
 
-1. Mettez ce dossier dans un dépôt GitHub (privé ou public — mais sans
-   `secrets.toml`, seulement `secrets.toml.example`).
-2. Sur [share.streamlit.io](https://share.streamlit.io), créez une nouvelle
-   app à partir de ce dépôt, fichier principal `app.py`.
-3. Dans les **Settings → Secrets** de l'app déployée, collez le contenu
-   de votre `secrets.toml` rempli.
-4. L'app publique sera accessible à une URL du type
-   `https://votre-app.streamlit.app` — c'est le lien à envoyer aux
-   détaillants. Le tableau de bord est protégé par le mot de passe même
-   si le lien est connu.
+## 5. Gérer le catalogue
 
-## Sécurité — points importants
+Tableau de bord → onglet **🧂 Produits** :
 
-- La clé **service_role** (accès total à la base) n'est utilisée que côté
-  serveur (dans le code Python du tableau de bord), jamais envoyée au
-  navigateur — c'est sûr tant qu'elle reste dans les secrets Streamlit.
-- La clé **anon**, utilisée par la page de commande publique, est limitée
-  par les policies RLS définies dans `supabase_schema.sql` : elle ne peut
-  que lire les produits actifs et insérer de nouvelles commandes — jamais
-  lire ou modifier les commandes existantes.
-- Le mot de passe admin (`ADMIN_PASSWORD`) est une protection simple,
-  suffisante pour un usage à petite échelle avec un seul producteur. Pour
-  plusieurs utilisateurs admin ou plus de sécurité, on pourrait migrer
-  vers Supabase Auth plus tard.
+- **➕ Ajouter un produit** : nom, description, catégorie, format/unité, prix,
+  URL d'image.
+- **Modifier** : ouvre le formulaire d'édition d'un produit.
+- **Désactiver / Activer** : retire ou remet un produit dans la page de
+  commande, sans toucher à l'historique des commandes.
+- **⬆️ / ⬇️** : change l'ordre d'affichage chez les détaillants.
+- Un prix à `0` signifie « aucun prix affiché » (la carte produit montre alors
+  seulement le format).
 
-## Prochaines améliorations possibles
+## 6. Suivre les commandes
 
-- Notification par courriel automatique au producteur à chaque nouvelle
-  commande (via un webhook Supabase + service comme Resend/SendGrid).
-- Export CSV/Excel des commandes depuis le tableau de bord.
-- Gestion du catalogue directement dans l'app (sans passer par Supabase).
-- Historique des commandes par détaillant (nécessiterait un système de
-  compte, actuellement volontairement omis pour rester simple).
+Tableau de bord → onglet **📋 Commandes** : compteurs par statut, filtre, puis
+une carte dépliable par commande (coordonnées du détaillant, articles, date
+souhaitée, notes) avec changement de statut
+(`nouvelle` → `en préparation` → `prête` → `complétée` / `annulée`).
+
+Une commande envoyée via le formulaire de secours (« mon commerce n'est pas dans
+la liste ») est signalée par un avertissement : c'est le rappel d'ajouter ce
+commerce dans l'onglet Détaillants.
+
+## 7. Déployer
+
+**Streamlit Community Cloud** :
+
+1. Poussez ce dossier sur GitHub (sans `secrets.toml`).
+2. Sur [share.streamlit.io](https://share.streamlit.io), créez l'app avec
+   `app.py` comme fichier principal.
+3. **Settings → Secrets** : collez le contenu de votre `secrets.toml`.
+4. L'URL publique est le lien à envoyer aux détaillants. Le tableau de bord
+   reste protégé par mot de passe même si le lien est connu.
+
+## Sécurité
+
+- La clé **service_role** (accès total) n'est utilisée que par le tableau de
+  bord, côté serveur, après saisie de `ADMIN_PASSWORD`. Streamlit exécute tout
+  le Python côté serveur : elle n'atteint jamais le navigateur.
+- La clé **anon**, utilisée par la page publique, est limitée par RLS. Elle peut
+  uniquement :
+  - lire les produits **actifs** ;
+  - lire la vue `retailers_public` (id + nom du commerce) ;
+  - **insérer** des commandes et des lignes de commande.
+  Elle ne peut relire aucune commande, ni lire la table `retailers` complète.
+- `ADMIN_PASSWORD` est une protection simple, suffisante pour un seul
+  producteur. Pour plusieurs comptes admin, migrer vers Supabase Auth.
+
+## Habillage visuel
+
+Tout l'habillage est centralisé dans `lib/branding.py` (palette, CSS,
+composants) et `.streamlit/config.toml` (thème Streamlit). Pour ajuster les
+couleurs, il suffit de modifier le dictionnaire `BRAND` en haut de
+`lib/branding.py` : les deux pages suivent.
+
+Choix faits pour le mobile (les détaillants commanderont surtout au téléphone) :
+cartes produits à grande cible tactile, boutons `+` / `−` de 48 px qui restent
+côte à côte même sur petit écran, options facultatives repliées, et bouton
+d'envoi qui rappelle ce qui manque tant que la commande est incomplète.
+
+## Améliorations possibles
+
+- Notification courriel au producteur à chaque nouvelle commande
+  (webhook Supabase + Resend/SendGrid).
+- Export CSV/Excel des commandes.
+- Historique des commandes par détaillant dans le tableau de bord.
+- Photos des produits (ajouter les URL dans l'onglet Produits).
