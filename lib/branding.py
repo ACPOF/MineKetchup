@@ -2,11 +2,14 @@
 Identité visuelle partagée par la page de commande et le tableau de bord.
 
 Un seul endroit pour la palette, les polices et les composants d'habillage,
-pour que la page publique (détaillants) et la page admin (producteur) aient
+pour que la page publique (détaillants) et la page admin (gestion) aient
 exactement le même look « Mine de Ketchup » : sombre, chaleureux, artisanal.
 """
 
 from __future__ import annotations
+
+import base64
+from pathlib import Path
 
 import streamlit as st
 
@@ -57,18 +60,29 @@ a { color: var(--mk-gold); }
 hr { border-color: var(--mk-border); }
 
 /* ---------- En-tête de marque ---------- */
-.mk-header { display: flex; align-items: center; gap: .9rem; padding: .2rem 0 .8rem 0; }
-.mk-logo {
-  width: 54px; height: 54px; flex: 0 0 54px; border-radius: 16px;
-  display: flex; align-items: center; justify-content: center; font-size: 1.7rem;
-  background: linear-gradient(150deg, var(--mk-red), #8E2517);
-  box-shadow: 0 6px 18px rgba(216, 69, 47, .3);
+.mk-header { padding: .2rem 0 .8rem 0; }
+
+/* Lettrage « MINE / pics croisés / DE KETCHUP », repris du logo de la marque.
+   Reconstruit en texte plutôt qu'en image : net à toutes les tailles, et il
+   prend la couleur crème du thème sombre au lieu du noir du fichier d'origine.
+   Un fichier déposé dans assets/ (voir logo_markup) le remplace. */
+.mk-wordmark { display: inline-block; text-align: center; line-height: 1; }
+.mk-wm-top {
+  font-family: var(--mk-serif); font-weight: 600; font-size: 1.6rem;
+  letter-spacing: .34em; text-indent: .34em; color: var(--mk-text);
 }
-.mk-brand {
-  font-family: var(--mk-serif); font-weight: 700; font-size: 1.45rem;
-  line-height: 1.15; letter-spacing: .01em;
+.mk-wm-mid { display: flex; align-items: center; gap: .45rem; margin: .28rem 0; }
+.mk-wm-rule { flex: 1 1 auto; height: 1.5px; background: var(--mk-text); opacity: .9; }
+.mk-wm-picks { flex: 0 0 auto; width: 38px; height: 31px; }
+.mk-wm-bot {
+  font-family: var(--mk-serif); font-weight: 600; font-size: .92rem;
+  letter-spacing: .3em; text-indent: .3em; color: var(--mk-text);
 }
-.mk-tag { color: var(--mk-muted); font-size: .83rem; margin-top: .12rem; }
+.mk-logo-img { display: block; height: 66px; width: auto; max-width: 100%; }
+/* Le logo fourni est noir sur blanc : inversé, il devient blanc et se fond
+   dans le thème sombre sans rectangle blanc autour. */
+.mk-logo-img.mk-invert { filter: invert(1); }
+.mk-tag { color: var(--mk-muted); font-size: .83rem; margin-top: .5rem; }
 .mk-rule {
   height: 3px; border: 0; border-radius: 3px; margin: 0 0 .5rem 0;
   background: linear-gradient(90deg, var(--mk-red), var(--mk-gold) 55%, transparent);
@@ -211,6 +225,12 @@ hr { border-color: var(--mk-border); }
 .stTabs [data-baseweb="tab"] { border-radius: 10px 10px 0 0; padding: .5rem .9rem; }
 .stTabs [aria-selected="true"] { background: var(--mk-surface); color: var(--mk-gold) !important; }
 [data-testid="stSidebarNav"] { font-family: var(--mk-sans); }
+.mk-backlink {
+  display: inline-block; margin-top: .45rem; font-size: .82rem;
+  color: var(--mk-muted) !important; text-decoration: none;
+}
+.mk-backlink:hover { color: var(--mk-gold) !important; text-decoration: underline; }
+
 .mk-foot {
   text-align: center; color: var(--mk-muted); font-size: .78rem;
   margin-top: 2.6rem; padding-top: 1.1rem; border-top: 1px solid var(--mk-border);
@@ -229,8 +249,9 @@ hr { border-color: var(--mk-border); }
 
 @media (max-width: 640px) {
   .block-container { padding-left: .9rem; padding-right: .9rem; }
-  .mk-brand { font-size: 1.2rem; }
-  .mk-logo { width: 46px; height: 46px; flex-basis: 46px; font-size: 1.4rem; }
+  .mk-wm-top { font-size: 1.3rem; }
+  .mk-wm-bot { font-size: .78rem; }
+  .mk-logo-img { height: 54px; }
 }
 </style>
 """
@@ -256,16 +277,78 @@ def inject_theme(wide: bool = False) -> None:
     st.markdown(css, unsafe_allow_html=True)
 
 
+# Pics croisés du logo. Dessinés en SVG pour rester nets et suivre la couleur
+# du texte (currentColor) quel que soit le thème.
+_PICKS_SVG = """
+<svg class="mk-wm-picks" viewBox="0 0 68 56" fill="none"
+     stroke="currentColor" stroke-width="3"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <g transform="translate(34 26)">
+    <g transform="rotate(-45)"><path d="M0 -21 L0 20"/></g>
+    <g transform="translate(-14.85 -14.85) rotate(-40)">
+      <path d="M-8 3 Q0 -6 8 3 Q3.6 -0.9 0 -0.9 Q-3.6 -0.9 -8 3 Z" fill="currentColor" stroke-width="1.2"/>
+    </g>
+    <g transform="rotate(45)"><path d="M0 -21 L0 20"/></g>
+    <g transform="translate(14.85 -14.85) rotate(40)">
+      <path d="M-8 3 Q0 -6 8 3 Q3.6 -0.9 0 -0.9 Q-3.6 -0.9 -8 3 Z" fill="currentColor" stroke-width="1.2"/>
+    </g>
+  </g>
+</svg>
+"""
+
+_LOGO_DIR = Path(__file__).resolve().parent.parent / "assets"
+_LOGO_EXTS = (".svg", ".png", ".webp", ".jpg", ".jpeg")
+_MIME = {".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp",
+         ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+@st.cache_data(show_spinner=False)
+def _logo_data_uri() -> tuple[str, bool] | None:
+    """Logo déposé dans assets/, encodé en data URI, + faut-il l'inverser.
+
+    Convention : un fichier dont le nom contient « blanc » ou « white » est
+    déjà clair, on l'affiche tel quel. Tout autre fichier est supposé sombre
+    sur fond clair (comme le logo officiel) et est inversé pour le thème.
+    """
+    if not _LOGO_DIR.is_dir():
+        return None
+    candidates = sorted(
+        f for f in _LOGO_DIR.iterdir()
+        if f.is_file() and f.name.lower().startswith("logo")
+        and f.suffix.lower() in _LOGO_EXTS
+    )
+    if not candidates:
+        return None
+    logo = candidates[0]
+    encoded = base64.b64encode(logo.read_bytes()).decode("ascii")
+    light = any(w in logo.stem.lower() for w in ("blanc", "white"))
+    return f"data:{_MIME[logo.suffix.lower()]};base64,{encoded}", not light
+
+
+def logo_markup() -> str:
+    """Le logo de la marque : le fichier d'assets/ s'il existe, sinon le lettrage."""
+    found = _logo_data_uri()
+    if found:
+        uri, invert = found
+        classes = "mk-logo-img mk-invert" if invert else "mk-logo-img"
+        return f'<img class="{classes}" src="{uri}" alt="{BRAND["name"]}">'
+    return (
+        '<div class="mk-wordmark">'
+        '<div class="mk-wm-top">MINE</div>'
+        f'<div class="mk-wm-mid"><span class="mk-wm-rule"></span>{_PICKS_SVG}'
+        '<span class="mk-wm-rule"></span></div>'
+        '<div class="mk-wm-bot">DE KETCHUP</div>'
+        "</div>"
+    )
+
+
 def brand_header(subtitle: str | None = None) -> None:
-    """En-tête avec logo, nom de la marque et sous-titre."""
+    """En-tête : logo de la marque puis sous-titre."""
     st.markdown(
         f"""
         <div class="mk-header">
-          <div class="mk-logo">🍅</div>
-          <div>
-            <div class="mk-brand">{BRAND['name']}</div>
-            <div class="mk-tag">{subtitle or BRAND['tagline']}</div>
-          </div>
+          {logo_markup()}
+          <div class="mk-tag">{subtitle or BRAND['tagline']}</div>
         </div>
         <hr class="mk-rule"/>
         """,

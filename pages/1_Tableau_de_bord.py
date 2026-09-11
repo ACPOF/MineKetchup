@@ -1,5 +1,8 @@
 """
-Mine de Ketchup — tableau de bord du producteur.
+Mine de Ketchup — tableau de bord de gestion.
+
+Page volontairement absente du menu de navigation : on y accède par son
+adresse directe (.../Tableau_de_bord), et elle reste protégée par mot de passe.
 
 Trois sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
   1. Commandes  : consulter les commandes reçues et changer leur statut.
@@ -67,7 +70,7 @@ def check_password() -> bool:
     if st.session_state.get("admin_authenticated"):
         return True
 
-    brand_header("Tableau de bord du producteur")
+    brand_header("Tableau de bord")
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         with st.container(border=True):
@@ -138,11 +141,19 @@ def refresh() -> None:
 # ------------------------------------------------------------------
 head_left, head_right = st.columns([5, 1])
 with head_left:
-    brand_header("Tableau de bord du producteur")
+    brand_header("Tableau de bord")
 with head_right:
     if st.button("Se déconnecter", width="stretch"):
         st.session_state.admin_authenticated = False
         st.rerun()
+    # Le menu latéral est masqué (showSidebarNavigation dans config.toml) pour ne
+    # pas annoncer ce tableau de bord aux détaillants : d'où ce retour explicite.
+    # Lien HTML plutôt que st.page_link, qui exige que la page cible soit
+    # enregistrée dans la navigation et lève StreamlitPageNotFoundError sinon.
+    st.markdown(
+        '<a class="mk-backlink" href="/" target="_self">↗ Page de commande</a>',
+        unsafe_allow_html=True,
+    )
 
 tab_orders, tab_products, tab_retailers = st.tabs(
     ["📋 Commandes", "🧂 Produits", "🏪 Détaillants"]

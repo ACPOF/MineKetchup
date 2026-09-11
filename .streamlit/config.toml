@@ -11,5 +11,11 @@ font = "sans serif"
 [client]
 showErrorDetails = true
 
+# Le menu latéral listait « Tableau de bord » à tous les visiteurs. La page est
+# protégée par mot de passe, mais autant ne pas annoncer son existence aux
+# détaillants : on masque la navigation, et le tableau de bord se rejoint
+# directement par son adresse (.../Tableau_de_bord), à mettre en favori.
+showSidebarNavigation = false
+
 [browser]
 gatherUsageStats = false

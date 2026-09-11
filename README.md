@@ -29,7 +29,8 @@ MineKetchup/
 │   └── 1_Tableau_de_bord.py      # Admin : commandes + produits + détaillants
 ├── lib/
 │   ├── supabase_client.py        # Connexion à Supabase (clé anon / service_role)
-│   └── branding.py               # Palette, CSS et composants d'habillage partagés
+│   └── branding.py               # Logo, palette, CSS et composants partagés
+├── assets/                       # (optionnel) logo officiel — voir assets/README.md
 ├── supabase_schema.sql           # Script SQL à exécuter dans Supabase (idempotent)
 ├── requirements.txt
 ├── .streamlit/
@@ -87,6 +88,19 @@ streamlit run app.py
 - `http://localhost:8501` → page de commande (ce que voient les détaillants).
 - `http://localhost:8501/Tableau_de_bord` → tableau de bord, protégé par
   `ADMIN_PASSWORD`.
+
+Le tableau de bord n'apparaît **pas** dans un menu : le menu latéral de
+Streamlit est masqué (`showSidebarNavigation = false` dans
+`.streamlit/config.toml`) pour ne pas en annoncer l'existence aux détaillants.
+On y accède en tapant l'adresse, à mettre en favori :
+
+```
+https://minedeketchup.streamlit.app/Tableau_de_bord
+```
+
+Ce n'est pas ce qui protège la page — c'est `ADMIN_PASSWORD` qui la protège —
+mais ça évite qu'un détaillant tombe dessus par curiosité. Depuis le tableau de
+bord, un lien « Page de commande » ramène côté public.
 
 ## 4. Démarrer : saisir vos détaillants et envoyer leurs liens
 
@@ -173,10 +187,22 @@ renvoyer son lien).
 
 ## Habillage visuel
 
-Tout l'habillage est centralisé dans `lib/branding.py` (palette, CSS,
+Tout l'habillage est centralisé dans `lib/branding.py` (logo, palette, CSS,
 composants) et `.streamlit/config.toml` (thème Streamlit). Pour ajuster les
 couleurs, il suffit de modifier le dictionnaire `BRAND` en haut de
 `lib/branding.py` : les deux pages suivent.
+
+### Le logo
+
+Les deux pages affichent le lettrage de la marque — « MINE », les pics croisés,
+« DE KETCHUP » — reconstruit en texte et en SVG plutôt qu'en image : il reste
+net à toutes les tailles et prend la couleur crème du thème sombre, là où le
+fichier officiel (noir sur blanc) formerait un rectangle blanc.
+
+Pour utiliser le fichier officiel à la place, déposez-le dans `assets/` sous un
+nom commençant par `logo` (`logo.png`, `logo.svg`…). Il est repris
+automatiquement, et inversé pour ressortir sur le fond sombre ; un fichier déjà
+clair doit s'appeler `logo-blanc.png`. Détails dans `assets/README.md`.
 
 Choix faits pour le mobile (les détaillants commanderont surtout au téléphone) :
 cartes produits à grande cible tactile, boutons `+` / `−` de 48 px qui restent
