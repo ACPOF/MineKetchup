@@ -1,6 +1,9 @@
 """
 Mine de Ketchup — tableau de bord de gestion.
 
+Page volontairement absente du menu de navigation : on y accède par son
+adresse directe (.../Tableau_de_bord), et elle reste protégée par mot de passe.
+
 Trois sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
   1. Commandes  : consulter les commandes reçues et changer leur statut.
   2. Produits   : gérer le catalogue (ajouter / modifier / activer / réordonner).
@@ -143,6 +146,9 @@ with head_right:
     if st.button("Se déconnecter", width="stretch"):
         st.session_state.admin_authenticated = False
         st.rerun()
+    # Le menu latéral est masqué (showSidebarNavigation dans config.toml) pour ne
+    # pas annoncer ce tableau de bord aux détaillants : d'où ce retour explicite.
+    st.page_link("app.py", label="Page de commande", icon="↗")
 
 tab_orders, tab_products, tab_retailers = st.tabs(
     ["📋 Commandes", "🧂 Produits", "🏪 Détaillants"]

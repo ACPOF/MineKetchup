@@ -89,6 +89,19 @@ streamlit run app.py
 - `http://localhost:8501/Tableau_de_bord` → tableau de bord, protégé par
   `ADMIN_PASSWORD`.
 
+Le tableau de bord n'apparaît **pas** dans un menu : le menu latéral de
+Streamlit est masqué (`showSidebarNavigation = false` dans
+`.streamlit/config.toml`) pour ne pas en annoncer l'existence aux détaillants.
+On y accède en tapant l'adresse, à mettre en favori :
+
+```
+https://minedeketchup.streamlit.app/Tableau_de_bord
+```
+
+Ce n'est pas ce qui protège la page — c'est `ADMIN_PASSWORD` qui la protège —
+mais ça évite qu'un détaillant tombe dessus par curiosité. Depuis le tableau de
+bord, un lien « Page de commande » ramène côté public.
+
 ## 4. Démarrer : saisir vos détaillants et envoyer leurs liens
 
 C'est la seule étape manuelle avant que tout roule tout seul.
