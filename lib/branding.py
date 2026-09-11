@@ -225,6 +225,12 @@ hr { border-color: var(--mk-border); }
 .stTabs [data-baseweb="tab"] { border-radius: 10px 10px 0 0; padding: .5rem .9rem; }
 .stTabs [aria-selected="true"] { background: var(--mk-surface); color: var(--mk-gold) !important; }
 [data-testid="stSidebarNav"] { font-family: var(--mk-sans); }
+.mk-backlink {
+  display: inline-block; margin-top: .45rem; font-size: .82rem;
+  color: var(--mk-muted) !important; text-decoration: none;
+}
+.mk-backlink:hover { color: var(--mk-gold) !important; text-decoration: underline; }
+
 .mk-foot {
   text-align: center; color: var(--mk-muted); font-size: .78rem;
   margin-top: 2.6rem; padding-top: 1.1rem; border-top: 1px solid var(--mk-border);

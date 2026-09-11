@@ -148,7 +148,12 @@ with head_right:
         st.rerun()
     # Le menu latéral est masqué (showSidebarNavigation dans config.toml) pour ne
     # pas annoncer ce tableau de bord aux détaillants : d'où ce retour explicite.
-    st.page_link("app.py", label="Page de commande", icon="↗")
+    # Lien HTML plutôt que st.page_link, qui exige que la page cible soit
+    # enregistrée dans la navigation et lève StreamlitPageNotFoundError sinon.
+    st.markdown(
+        '<a class="mk-backlink" href="/" target="_self">↗ Page de commande</a>',
+        unsafe_allow_html=True,
+    )
 
 tab_orders, tab_products, tab_retailers = st.tabs(
     ["📋 Commandes", "🧂 Produits", "🏪 Détaillants"]
