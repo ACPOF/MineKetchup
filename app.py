@@ -1,185 +1,368 @@
 """
-Page principale : formulaire de commande pour les détaillants.
+Mine de Ketchup — page publique de commande pour les détaillants.
 
-Aucune identification requise. Le détaillant :
-1. indique la quantité désirée pour chaque produit du catalogue,
-2. remplit ses coordonnées,
-3. soumet — la commande est enregistrée dans Supabase et apparaît
-   immédiatement dans le tableau de bord du producteur.
+Objectif : commander en 3 clics. Les détaillants sont DÉJÀ connus du
+producteur, donc aucune coordonnée n'est redemandée :
 
-Aucun paiement n'est traité par cette app.
+1. le détaillant se choisit dans la liste déroulante,
+2. il ajuste les quantités avec les boutons + / −,
+3. il envoie.
+
+Date de livraison et notes sont optionnelles et repliées par défaut.
+Aucune identification, aucun compte, aucun paiement.
 """
 
-import pandas as pd
+from __future__ import annotations
+
 import streamlit as st
 
+from lib.branding import BRAND, brand_header, footer, inject_theme, money, step
 from lib.supabase_client import get_public_client
 
 st.set_page_config(
-    page_title="Passer une commande",
-    page_icon="🧺",
+    page_title="Mine de Ketchup — Commande détaillants",
+    page_icon="🍅",
     layout="centered",
+    initial_sidebar_state="collapsed",
 )
+inject_theme()
 
 
-def load_products():
-    client = get_public_client()
-    response = (
-        client.table("products")
-        .select("id, name, description, category, unit, price")
+# ------------------------------------------------------------------
+# Chargement des données (mises en cache : le catalogue bouge peu)
+# ------------------------------------------------------------------
+@st.cache_data(ttl=120, show_spinner=False)
+def load_products() -> list[dict]:
+    res = (
+        get_public_client()
+        .table("products")
+        .select("*")
         .eq("is_active", True)
         .order("sort_order")
+        .order("name")
         .execute()
     )
-    return response.data or []
+    return res.data or []
 
 
-def reset_cart():
-    for key in list(st.session_state.keys()):
-        if key.startswith("qty_"):
-            del st.session_state[key]
+@st.cache_data(ttl=60, show_spinner=False)
+def load_retailers() -> list[dict]:
+    # Vue `retailers_public` : id + nom du commerce seulement. Les téléphones
+    # et courriels des détaillants ne sont jamais exposés à la clé anon.
+    res = (
+        get_public_client()
+        .table("retailers_public")
+        .select("*")
+        .order("business_name")
+        .execute()
+    )
+    return res.data or []
 
 
-st.title("🧺 Passer une commande")
-st.caption(
-    "Remplissez les quantités désirées ci-dessous, puis vos coordonnées. "
-    "Aucun paiement n'est requis ici — vous serez contacté(e) pour la "
-    "confirmation et le paiement."
-)
+def qty_key(product_id: str) -> str:
+    return f"qty_{product_id}"
 
-products = load_products()
+
+def bump(product_id: str, delta: int) -> None:
+    key = qty_key(product_id)
+    st.session_state[key] = max(0, int(st.session_state.get(key, 0)) + delta)
+
+
+def clear_cart() -> None:
+    for key in [k for k in st.session_state if k.startswith("qty_")]:
+        st.session_state[key] = 0
+
+
+# ------------------------------------------------------------------
+# Écran de confirmation (après envoi)
+# ------------------------------------------------------------------
+if st.session_state.get("mk_receipt"):
+    receipt = st.session_state["mk_receipt"]
+    brand_header("Commande envoyée")
+    lines = "".join(
+        f'<div class="mk-line"><span>{it["quantity"]} × {it["product_name"]}</span>'
+        f'<span>{it["unit"]}</span></div>'
+        for it in receipt["items"]
+    )
+    st.markdown(
+        f"""
+        <div class="mk-done">
+          <div class="mk-done-emoji">✅</div>
+          <h3 style="margin:.5rem 0 .2rem 0;">Merci, c'est envoyé !</h3>
+          <div style="color:var(--mk-muted);font-size:.9rem;">
+            Commande de <strong>{receipt['retailer']}</strong> bien reçue.<br/>
+            Le producteur vous contactera pour la confirmation.
+          </div>
+          <div class="mk-ref">N<sup>o</sup> {receipt['ref']}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True):
+        st.markdown("**Récapitulatif**")
+        st.markdown(lines, unsafe_allow_html=True)
+        if receipt.get("requested_date"):
+            st.caption(f"Livraison souhaitée : {receipt['requested_date']}")
+        if receipt.get("notes"):
+            st.caption(f"Notes : {receipt['notes']}")
+
+    if st.button("Passer une nouvelle commande", type="primary", width="stretch"):
+        clear_cart()
+        st.session_state.pop("mk_receipt", None)
+        st.rerun()
+    footer()
+    st.stop()
+
+
+# ------------------------------------------------------------------
+# Page de commande
+# ------------------------------------------------------------------
+brand_header("Commande détaillants — 3 clics, c'est envoyé")
+
+try:
+    products = load_products()
+except Exception as exc:  # noqa: BLE001
+    st.error(
+        "Impossible de joindre la base de données. Vérifiez la configuration "
+        f"Supabase de l'app (secrets `SUPABASE_URL` / `SUPABASE_ANON_KEY`).\n\n`{exc}`"
+    )
+    st.stop()
 
 if not products:
     st.warning(
-        "Le catalogue de produits n'est pas encore configuré. "
-        "Merci de contacter le producteur directement."
+        "Le catalogue n'est pas encore configuré. Le producteur doit ajouter "
+        "des produits dans le tableau de bord."
     )
     st.stop()
 
-if "order_submitted" not in st.session_state:
-    st.session_state.order_submitted = False
+retailers: list[dict] = []
+retailers_error: str | None = None
+try:
+    retailers = load_retailers()
+except Exception as exc:  # noqa: BLE001
+    retailers_error = str(exc)
 
-if st.session_state.order_submitted:
-    st.success(
-        "✅ Votre commande a bien été envoyée ! Vous recevrez une "
-        "confirmation directement du producteur."
+# --- Étape 1 : qui commande ? -------------------------------------
+step(1, "Votre commerce")
+
+selected = None
+if retailers:
+    by_id = {r["id"]: r for r in retailers}
+    chosen_id = st.selectbox(
+        "Choisissez votre commerce",
+        options=list(by_id),
+        format_func=lambda i: by_id[i]["business_name"],
+        index=None,
+        placeholder="Tapez les premières lettres de votre commerce…",
+        label_visibility="collapsed",
+        key="mk_retailer",
     )
-    if st.button("Passer une nouvelle commande"):
-        reset_cart()
-        st.session_state.order_submitted = False
-        st.rerun()
-    st.stop()
+    selected = by_id.get(chosen_id) if chosen_id else None
+elif retailers_error:
+    st.warning(
+        "La liste des détaillants n'est pas encore disponible "
+        "(la table `retailers` n'existe probablement pas : exécutez "
+        "`supabase_schema.sql` dans Supabase). Utilisez le formulaire "
+        "de secours ci-dessous en attendant."
+    )
+else:
+    st.info(
+        "Aucun détaillant enregistré pour l'instant. Utilisez le formulaire "
+        "de secours ci-dessous — le producteur vous ajoutera à la liste."
+    )
 
-st.subheader("1. Choisissez vos produits")
+with st.expander("Mon commerce n'est pas dans la liste", expanded=not retailers):
+    st.caption(
+        "Exceptionnel : normalement votre commerce est déjà enregistré. "
+        "Le producteur vous ajoutera à la liste après cette commande."
+    )
+    fb_business = st.text_input("Nom de votre commerce", max_chars=200, key="mk_fb_business")
+    fb_contact = st.text_input("Votre nom", max_chars=200, key="mk_fb_contact")
+    fb_c1, fb_c2 = st.columns(2)
+    fb_phone = fb_c1.text_input("Téléphone", key="mk_fb_phone")
+    fb_email = fb_c2.text_input("Courriel", key="mk_fb_email")
 
-# Regrouper par catégorie pour un affichage plus lisible
-categories = {}
-for p in products:
-    cat = p.get("category") or "Autres"
-    categories.setdefault(cat, []).append(p)
+fb_business = (fb_business or "").strip()
+if selected:
+    buyer_label = selected["business_name"]
+elif fb_business:
+    buyer_label = fb_business
+else:
+    buyer_label = None
 
-for cat, items in categories.items():
-    st.markdown(f"**{cat}**")
-    for p in items:
-        cols = st.columns([4, 2, 2])
-        with cols[0]:
-            label = p["name"]
-            if p.get("description"):
-                st.markdown(f"{label}  \n:gray[{p['description']}]")
-            else:
-                st.markdown(label)
-        with cols[1]:
-            price_txt = f"{p['price']:.2f} $ / {p['unit']}" if p.get("price") else p["unit"]
-            st.markdown(f":gray[{price_txt}]")
-        with cols[2]:
-            st.number_input(
-                "Quantité",
-                min_value=0,
-                step=1,
-                key=f"qty_{p['id']}",
-                label_visibility="collapsed",
+# --- Étape 2 : les produits ---------------------------------------
+step(2, "Vos produits", "Ajustez les quantités avec les boutons + et −.")
+
+by_category: dict[str, list[dict]] = {}
+for product in products:
+    by_category.setdefault(product.get("category") or "Autres", []).append(product)
+
+for category, items in by_category.items():
+    st.markdown(f'<div class="mk-cat">{category}</div>', unsafe_allow_html=True)
+    for product in items:
+        pid = product["id"]
+        current = int(st.session_state.get(qty_key(pid), 0))
+        with st.container(border=True):
+            if product.get("image_url"):
+                st.markdown(
+                    f'<img class="mk-thumb" src="{product["image_url"]}" alt="">',
+                    unsafe_allow_html=True,
+                )
+            price_txt = money(product.get("price"))
+            desc = product.get("description") or ""
+            st.markdown(
+                f"""
+                <div class="mk-card-head">
+                  <div class="mk-card-title">{product['name']}</div>
+                  <div class="mk-card-price">{price_txt}</div>
+                </div>
+                {f'<div class="mk-card-desc">{desc}</div>' if desc else ''}
+                <div class="mk-card-unit">{product.get('unit') or 'unité'}</div>
+                """,
+                unsafe_allow_html=True,
             )
-    st.divider()
+            col_minus, col_qty, col_plus = st.columns([2, 3, 2], vertical_alignment="center")
+            with col_minus:
+                st.markdown('<span class="mk-qtyrow"></span>', unsafe_allow_html=True)
+                st.button(
+                    "−",
+                    key=f"minus_{pid}",
+                    on_click=bump,
+                    args=(pid, -1),
+                    disabled=current == 0,
+                    width="stretch",
+                    help="Retirer un",
+                )
+            with col_qty:
+                st.number_input(
+                    "Quantité",
+                    min_value=0,
+                    max_value=999,
+                    step=1,
+                    key=qty_key(pid),
+                    label_visibility="collapsed",
+                )
+            with col_plus:
+                st.button(
+                    "+",
+                    key=f"plus_{pid}",
+                    on_click=bump,
+                    args=(pid, 1),
+                    width="stretch",
+                    help="Ajouter un",
+                )
+            if current:
+                st.markdown(
+                    f'<div class="mk-incart">✓ {current} × {product.get("unit") or "unité"} au panier</div>',
+                    unsafe_allow_html=True,
+                )
 
-# Construire le panier à partir des quantités saisies
-cart = []
-for p in products:
-    qty = st.session_state.get(f"qty_{p['id']}", 0)
-    if qty and qty > 0:
-        cart.append({**p, "quantity": qty})
+cart = [
+    {**p, "quantity": int(st.session_state.get(qty_key(p["id"]), 0))}
+    for p in products
+    if int(st.session_state.get(qty_key(p["id"]), 0)) > 0
+]
 
-if cart:
-    st.subheader("Résumé de votre commande")
-    df = pd.DataFrame(
-        [
+# --- Étape 3 : envoi ----------------------------------------------
+step(3, "Envoi")
+
+with st.expander("Date de livraison souhaitée et notes (facultatif)"):
+    requested_date = st.date_input(
+        "Date de livraison / collecte souhaitée", value=None, format="YYYY-MM-DD"
+    )
+    notes = st.text_area(
+        "Notes",
+        placeholder="Ex : instructions de livraison, produit hors catalogue…",
+        height=90,
+    )
+
+with st.container(border=True):
+    if cart:
+        total = sum(
+            (c["quantity"] * float(c["price"])) for c in cart if c.get("price") is not None
+        )
+        priced = all(c.get("price") is not None for c in cart)
+        st.markdown(
+            "".join(
+                f'<div class="mk-line"><span>{c["quantity"]} × {c["name"]}</span>'
+                f'<span>{c.get("unit") or "unité"}</span></div>'
+                for c in cart
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="mk-total"><span>'
+            f'{sum(c["quantity"] for c in cart)} article(s)</span><span>'
+            f'{money(total) + " (indicatif)" if priced and total else "—"}</span></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="color:var(--mk-muted);font-size:.9rem;">'
+            "Votre panier est vide — ajoutez au moins un produit ci-dessus.</div>",
+            unsafe_allow_html=True,
+        )
+
+    blockers = []
+    if not buyer_label:
+        blockers.append("choisissez votre commerce")
+    if not cart:
+        blockers.append("ajoutez au moins un produit")
+
+    send = st.button(
+        f"Envoyer la commande{f' — {buyer_label}' if buyer_label else ''}",
+        type="primary",
+        width="stretch",
+        disabled=bool(blockers),
+    )
+    if blockers:
+        st.caption("Pour envoyer : " + ", puis ".join(blockers) + ".")
+
+if send:
+    client = get_public_client()
+    order_payload = {
+        "retailer_id": selected["id"] if selected else None,
+        "retailer_name": selected["business_name"] if selected else fb_business,
+        "contact_name": None if selected else ((fb_contact or "").strip() or None),
+        "phone": None if selected else ((fb_phone or "").strip() or None),
+        "email": None if selected else ((fb_email or "").strip() or None),
+        "requested_date": requested_date.isoformat() if requested_date else None,
+        "notes": (notes or "").strip() or None,
+    }
+    try:
+        order_res = client.table("orders").insert(order_payload).execute()
+        order_id = order_res.data[0]["id"]
+
+        items_payload = [
             {
-                "Produit": c["name"],
-                "Quantité": c["quantity"],
-                "Unité": c["unit"],
+                "order_id": order_id,
+                "product_id": c["id"],
+                "product_name": c["name"],
+                "unit": c.get("unit") or "unité",
+                "quantity": c["quantity"],
+                "price": c.get("price"),
             }
             for c in cart
         ]
-    )
-    st.dataframe(df, hide_index=True, use_container_width=True)
-else:
-    st.info("Ajoutez au moins un produit ci-dessus pour continuer.")
+        client.table("order_items").insert(items_payload).execute()
 
-st.subheader("2. Vos coordonnées")
+        st.session_state["mk_receipt"] = {
+            "ref": str(order_id).split("-")[0].upper(),
+            "retailer": buyer_label,
+            "items": items_payload,
+            "requested_date": order_payload["requested_date"],
+            "notes": order_payload["notes"],
+        }
+        st.rerun()
+    except Exception as exc:  # noqa: BLE001
+        st.error(
+            "Une erreur est survenue lors de l'envoi. Réessayez, ou contactez "
+            f"directement le producteur.\n\n`{exc}`"
+        )
 
-with st.form("order_form"):
-    retailer_name = st.text_input("Nom de votre commerce *", max_chars=200)
-    contact_name = st.text_input("Nom du contact")
-    col1, col2 = st.columns(2)
-    with col1:
-        phone = st.text_input("Téléphone")
-    with col2:
-        email = st.text_input("Courriel")
-    requested_date = st.date_input("Date de livraison/collecte souhaitée", value=None)
-    notes = st.text_area(
-        "Notes ou produits hors-catalogue",
-        placeholder="Ex : allergies, instructions de livraison, produit spécial...",
-    )
-
-    submitted = st.form_submit_button("Envoyer ma commande", type="primary")
-
-    if submitted:
-        errors = []
-        if not retailer_name.strip():
-            errors.append("Le nom de votre commerce est requis.")
-        if not cart:
-            errors.append("Veuillez sélectionner au moins un produit.")
-
-        if errors:
-            for e in errors:
-                st.error(e)
-        else:
-            client = get_public_client()
-            order_payload = {
-                "retailer_name": retailer_name.strip(),
-                "contact_name": contact_name.strip() or None,
-                "phone": phone.strip() or None,
-                "email": email.strip() or None,
-                "requested_date": requested_date.isoformat() if requested_date else None,
-                "notes": notes.strip() or None,
-            }
-            try:
-                order_res = client.table("orders").insert(order_payload).execute()
-                order_id = order_res.data[0]["id"]
-
-                items_payload = [
-                    {
-                        "order_id": order_id,
-                        "product_id": c["id"],
-                        "product_name": c["name"],
-                        "unit": c["unit"],
-                        "quantity": c["quantity"],
-                        "price": c.get("price"),
-                    }
-                    for c in cart
-                ]
-                client.table("order_items").insert(items_payload).execute()
-
-                st.session_state.order_submitted = True
-                st.rerun()
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Une erreur est survenue lors de l'envoi de la commande : {exc}")
+st.markdown(
+    f'<div class="mk-foot">{BRAND["name"]} — aucun paiement n\'est traité ici. '
+    f'Vous serez contacté(e) pour la confirmation.<br/>'
+    f'<a href="{BRAND["site"]}" target="_blank">{BRAND["site"].replace("https://", "")}</a></div>',
+    unsafe_allow_html=True,
+)
