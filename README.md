@@ -92,7 +92,8 @@ streamlit run app.py
 Le tableau de bord n'apparaît **pas** dans un menu : le menu latéral de
 Streamlit est masqué (`showSidebarNavigation = false` dans
 `.streamlit/config.toml`) pour ne pas en annoncer l'existence aux détaillants.
-On y accède en tapant l'adresse, à mettre en favori :
+Un lien « Gestion », volontairement effacé, est posé tout en bas de la page de
+commande. Sinon, on y accède en tapant l'adresse, à mettre en favori :
 
 ```
 https://minedeketchup.streamlit.app/Tableau_de_bord

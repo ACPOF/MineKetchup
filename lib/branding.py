@@ -204,6 +204,7 @@ hr { border-color: var(--mk-border); }
 .mk-done {
   text-align: center; padding: 2.2rem 1.2rem; border-radius: var(--mk-radius);
   background: var(--mk-surface); border: 1px solid var(--mk-border);
+  margin-bottom: .8rem;
 }
 .mk-done-emoji { font-size: 2.6rem; }
 .mk-ref {
@@ -225,11 +226,30 @@ hr { border-color: var(--mk-border); }
 .stTabs [data-baseweb="tab"] { border-radius: 10px 10px 0 0; padding: .5rem .9rem; }
 .stTabs [aria-selected="true"] { background: var(--mk-surface); color: var(--mk-gold) !important; }
 [data-testid="stSidebarNav"] { font-family: var(--mk-sans); }
+/* Lien présenté comme un bouton principal (écran de confirmation). */
+.mk-btn-link {
+  display: block; text-align: center; padding: .7rem 1rem; border-radius: 12px;
+  background: var(--mk-red); border: 1px solid var(--mk-red);
+  color: #fff !important; font-weight: 600; text-decoration: none !important;
+  margin-top: 1.1rem;
+}
+.mk-btn-link:hover { background: var(--mk-red-light); border-color: var(--mk-red-light); }
+
+/* Accès au tableau de bord : présent, mais effacé — les détaillants n'ont
+   rien à y faire, et la page reste protégée par mot de passe. */
+.mk-admin-link {
+  display: inline-block; margin-top: .5rem; font-size: .72rem;
+  color: var(--mk-muted) !important; opacity: .55; text-decoration: none !important;
+  letter-spacing: .06em;
+}
+.mk-admin-link:hover { opacity: 1; color: var(--mk-gold) !important; }
+
 .mk-backlink {
   display: inline-block; margin-top: .45rem; font-size: .82rem;
   color: var(--mk-muted) !important; text-decoration: none;
 }
-.mk-backlink:hover { color: var(--mk-gold) !important; text-decoration: underline; }
+.mk-backlink { text-decoration: none !important; }
+.mk-backlink:hover { color: var(--mk-gold) !important; text-decoration: underline !important; }
 
 .mk-foot {
   text-align: center; color: var(--mk-muted); font-size: .78rem;
