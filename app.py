@@ -2,7 +2,7 @@
 Mine de Ketchup — page publique de commande pour les détaillants.
 
 Objectif : commander en 2 clics. Les détaillants sont DÉJÀ connus du
-producteur, donc aucune coordonnée n'est redemandée :
+Mine de Ketchup, donc aucune coordonnée n'est redemandée :
 
 1. le détaillant ouvre SON lien personnel (.../?c=XXXXXXXX) — la page sait
    déjà quel commerce commande,
@@ -11,7 +11,7 @@ producteur, donc aucune coordonnée n'est redemandée :
 
 Le lien personnel remplace la liste déroulante : aucune liste de détaillants
 n'est affichée ni même envoyée au navigateur, donc la liste de clients du
-producteur reste confidentielle.
+Mine de Ketchup reste confidentielle.
 
 Date de livraison et notes sont optionnelles et repliées par défaut.
 Aucun compte, aucun mot de passe, aucun paiement.
@@ -100,7 +100,7 @@ if st.session_state.get("mk_receipt"):
           <h3 style="margin:.5rem 0 .2rem 0;">Merci, c'est envoyé !</h3>
           <div style="color:var(--mk-muted);font-size:.9rem;">
             Commande de <strong>{receipt['retailer']}</strong> bien reçue.<br/>
-            Le producteur vous contactera pour la confirmation.
+            Mine de Ketchup vous contactera pour la confirmation.
           </div>
           <div class="mk-ref">N<sup>o</sup> {receipt['ref']}</div>
         </div>
@@ -139,7 +139,7 @@ except Exception as exc:  # noqa: BLE001
 
 if not products:
     st.warning(
-        "Le catalogue n'est pas encore configuré. Le producteur doit ajouter "
+        "Le catalogue n'est pas encore configuré. Mine de Ketchup doit ajouter "
         "des produits dans le tableau de bord."
     )
     st.stop()
@@ -172,7 +172,7 @@ else:
     elif access_code:
         st.warning(
             "Ce lien de commande n'est plus valide. Demandez votre lien "
-            "personnel au producteur — ou commandez quand même en indiquant "
+            "personnel à Mine de Ketchup — ou commandez quand même en indiquant "
             "votre commerce ci-dessous."
         )
     else:
@@ -374,7 +374,7 @@ if send:
     except Exception as exc:  # noqa: BLE001
         st.error(
             "Une erreur est survenue lors de l'envoi. Réessayez, ou contactez "
-            f"directement le producteur.\n\n`{exc}`"
+            f"directement Mine de Ketchup.\n\n`{exc}`"
         )
 
 st.markdown(

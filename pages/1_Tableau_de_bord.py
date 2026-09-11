@@ -1,5 +1,5 @@
 """
-Mine de Ketchup — tableau de bord du producteur.
+Mine de Ketchup — tableau de bord de gestion.
 
 Trois sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
   1. Commandes  : consulter les commandes reçues et changer leur statut.
@@ -67,7 +67,7 @@ def check_password() -> bool:
     if st.session_state.get("admin_authenticated"):
         return True
 
-    brand_header("Tableau de bord du producteur")
+    brand_header("Tableau de bord")
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         with st.container(border=True):
@@ -138,7 +138,7 @@ def refresh() -> None:
 # ------------------------------------------------------------------
 head_left, head_right = st.columns([5, 1])
 with head_left:
-    brand_header("Tableau de bord du producteur")
+    brand_header("Tableau de bord")
 with head_right:
     if st.button("Se déconnecter", width="stretch"):
         st.session_state.admin_authenticated = False
