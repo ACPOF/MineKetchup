@@ -11,9 +11,9 @@ create extension if not exists "pgcrypto";
 -- ------------------------------------------------------------
 -- Table : retailers (les détaillants connus du producteur)
 --
--- C'est LE raccourci du projet : le producteur saisit le détaillant
--- une seule fois ici (via le tableau de bord), et ensuite le détaillant
--- n'a plus qu'à se choisir dans une liste déroulante pour commander.
+-- C'est LE raccourci du projet : le producteur saisit le détaillant une
+-- seule fois ici (via le tableau de bord) et lui envoie son lien de
+-- commande personnel ; ensuite, ouvrir ce lien suffit à l'identifier.
 -- ------------------------------------------------------------
 create table if not exists retailers (
     id uuid primary key default gen_random_uuid(),
@@ -30,6 +30,44 @@ create unique index if not exists idx_retailers_business_name
     on retailers (lower(business_name));
 create index if not exists idx_retailers_active
     on retailers (is_active, business_name);
+
+-- ------------------------------------------------------------
+-- Lien de commande personnel
+--
+-- Chaque détaillant a un code court et unique. Son lien de commande est
+-- https://votre-app.streamlit.app/?c=XXXXXXXX : la page l'identifie toute
+-- seule, donc AUCUNE liste de détaillants n'est jamais affichée ni envoyée
+-- au navigateur. La liste de clients du producteur reste confidentielle.
+--
+-- Alphabet sans caractères ambigus (pas de O/0, I/1) : le code reste
+-- dictable au téléphone si besoin. 8 caractères sur 32 symboles, soit plus
+-- de 1000 milliards de combinaisons — non devinable.
+-- ------------------------------------------------------------
+create or replace function gen_retailer_code() returns text
+language plpgsql
+as $$
+declare
+    alphabet text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    code text;
+begin
+    loop
+        code := '';
+        for i in 1..8 loop
+            code := code || substr(alphabet, 1 + floor(random() * length(alphabet))::int, 1);
+        end loop;
+        exit when not exists (select 1 from retailers where access_code = code);
+    end loop;
+    return code;
+end
+$$;
+
+alter table retailers add column if not exists access_code text;
+update retailers set access_code = gen_retailer_code() where access_code is null;
+alter table retailers alter column access_code set default gen_retailer_code();
+alter table retailers alter column access_code set not null;
+
+create unique index if not exists idx_retailers_access_code
+    on retailers (access_code);
 
 -- ------------------------------------------------------------
 -- Table : products (catalogue géré par le producteur)
@@ -102,8 +140,9 @@ create index if not exists idx_orders_created_at on orders (created_at desc);
 -- ============================================================
 -- Principe inchangé :
 --   - la page de commande (publique, sans mot de passe) utilise la clé anon :
---     elle peut LIRE les produits actifs, LIRE la liste des détaillants
---     (nom du commerce seulement, via une vue) et INSÉRER des commandes ;
+--     elle peut LIRE les produits actifs, RÉSOUDRE un code de détaillant
+--     (un seul à la fois, via la fonction retailer_by_code) et INSÉRER des
+--     commandes — jamais lister les détaillants ;
 --   - le tableau de bord utilise la clé service_role (accès complet), gardée
 --     dans les secrets Streamlit et jamais envoyée au navigateur.
 -- ============================================================
@@ -129,18 +168,32 @@ create policy "public insert order_items"
     with check (true);
 
 -- ATTENTION : aucune policy de lecture sur `retailers`. La clé anon ne peut
--- donc PAS lire les téléphones/courriels de vos détaillants. La page publique
--- lit uniquement la vue ci-dessous, qui n'expose que l'id et le nom du commerce.
-create or replace view retailers_public as
-    select id, business_name
-    from retailers
-    where is_active = true;
+-- donc ni lire les coordonnées de vos détaillants, ni ÉNUMÉRER la liste.
+--
+-- La version précédente exposait une vue `retailers_public` pour alimenter une
+-- liste déroulante : elle est retirée ici, car elle laissait n'importe quel
+-- visiteur lire toute la liste de clients du producteur.
+drop view if exists retailers_public;
 
--- La vue s'exécute avec les droits de son propriétaire (postgres), donc elle
--- « traverse » le RLS de retailers — c'est voulu, et elle ne contient que
--- deux colonnes non sensibles.
-alter view retailers_public set (security_invoker = off);
-grant select on retailers_public to anon, authenticated;
+-- À la place, une seule fonction, qui répond uniquement à la question
+-- « à quel commerce correspond CE code ? ». Elle ne peut rien lister : sans
+-- le bon code, elle ne renvoie rien, et elle n'expose ni téléphone ni courriel.
+create or replace function retailer_by_code(p_code text)
+returns table (id uuid, business_name text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+    select r.id, r.business_name
+    from retailers r
+    where r.is_active = true
+      and r.access_code = upper(trim(p_code))
+    limit 1;
+$$;
+
+revoke all on function retailer_by_code(text) from public;
+grant execute on function retailer_by_code(text) to anon, authenticated;
 
 -- Note : aucune policy SELECT/UPDATE/DELETE publique sur orders/order_items.
 

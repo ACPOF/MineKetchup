@@ -1,15 +1,20 @@
 """
 Mine de Ketchup — page publique de commande pour les détaillants.
 
-Objectif : commander en 3 clics. Les détaillants sont DÉJÀ connus du
+Objectif : commander en 2 clics. Les détaillants sont DÉJÀ connus du
 producteur, donc aucune coordonnée n'est redemandée :
 
-1. le détaillant se choisit dans la liste déroulante,
+1. le détaillant ouvre SON lien personnel (.../?c=XXXXXXXX) — la page sait
+   déjà quel commerce commande,
 2. il ajuste les quantités avec les boutons + / −,
 3. il envoie.
 
+Le lien personnel remplace la liste déroulante : aucune liste de détaillants
+n'est affichée ni même envoyée au navigateur, donc la liste de clients du
+producteur reste confidentielle.
+
 Date de livraison et notes sont optionnelles et repliées par défaut.
-Aucune identification, aucun compte, aucun paiement.
+Aucun compte, aucun mot de passe, aucun paiement.
 """
 
 from __future__ import annotations
@@ -45,18 +50,20 @@ def load_products() -> list[dict]:
     return res.data or []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def load_retailers() -> list[dict]:
-    # Vue `retailers_public` : id + nom du commerce seulement. Les téléphones
-    # et courriels des détaillants ne sont jamais exposés à la clé anon.
-    res = (
-        get_public_client()
-        .table("retailers_public")
-        .select("*")
-        .order("business_name")
-        .execute()
-    )
-    return res.data or []
+# TTL court volontairement : il évite un appel réseau à chaque clic sur + / −,
+# mais garde une désactivation ou une régénération de lien effective en moins
+# d'une minute. Ne pas rallonger sans revoir le texte du tableau de bord.
+@st.cache_data(ttl=30, show_spinner=False)
+def resolve_retailer(code: str) -> dict | None:
+    """Traduit un code de lien personnel en commerce, via la fonction Supabase.
+
+    La clé anon ne peut PAS lire la table `retailers` : elle peut seulement
+    appeler cette fonction, qui répond pour un code à la fois et ne renvoie
+    que l'id et le nom du commerce. Impossible d'énumérer la clientèle.
+    """
+    res = get_public_client().rpc("retailer_by_code", {"p_code": code}).execute()
+    rows = res.data or []
+    return rows[0] if rows else None
 
 
 def qty_key(product_id: str) -> str:
@@ -117,7 +124,7 @@ if st.session_state.get("mk_receipt"):
 # ------------------------------------------------------------------
 # Page de commande
 # ------------------------------------------------------------------
-brand_header("Commande détaillants — 3 clics, c'est envoyé")
+brand_header("Commande détaillants — 2 clics, c'est envoyé")
 
 try:
     products = load_products()
@@ -135,52 +142,53 @@ if not products:
     )
     st.stop()
 
-retailers: list[dict] = []
-retailers_error: str | None = None
-try:
-    retailers = load_retailers()
-except Exception as exc:  # noqa: BLE001
-    retailers_error = str(exc)
+# --- Qui commande ? Le lien personnel répond déjà ------------------
+# Le code arrive dans l'URL (.../?c=XXXXXXXX). Aucune liste n'est chargée :
+# on ne résout qu'un code à la fois, côté serveur.
+access_code = (st.query_params.get("c") or "").strip().upper()
 
-# --- Étape 1 : qui commande ? -------------------------------------
-step(1, "Votre commerce")
+selected: dict | None = None
+lookup_error: str | None = None
+if access_code:
+    try:
+        selected = resolve_retailer(access_code)
+    except Exception as exc:  # noqa: BLE001
+        lookup_error = str(exc)
 
-selected = None
-if retailers:
-    by_id = {r["id"]: r for r in retailers}
-    chosen_id = st.selectbox(
-        "Choisissez votre commerce",
-        options=list(by_id),
-        format_func=lambda i: by_id[i]["business_name"],
-        index=None,
-        placeholder="Tapez les premières lettres de votre commerce…",
-        label_visibility="collapsed",
-        key="mk_retailer",
-    )
-    selected = by_id.get(chosen_id) if chosen_id else None
-elif retailers_error:
-    st.warning(
-        "La liste des détaillants n'est pas encore disponible "
-        "(la table `retailers` n'existe probablement pas : exécutez "
-        "`supabase_schema.sql` dans Supabase). Utilisez le formulaire "
-        "de secours ci-dessous en attendant."
+if selected:
+    st.markdown(
+        f'<div class="mk-who"><span class="mk-who-label">Commande pour</span>'
+        f'<span class="mk-who-name">{selected["business_name"]}</span></div>',
+        unsafe_allow_html=True,
     )
 else:
-    st.info(
-        "Aucun détaillant enregistré pour l'instant. Utilisez le formulaire "
-        "de secours ci-dessous — le producteur vous ajoutera à la liste."
-    )
+    if lookup_error:
+        st.warning(
+            "Impossible de vérifier votre lien pour le moment. Vous pouvez "
+            "quand même commander en indiquant votre commerce ci-dessous."
+        )
+    elif access_code:
+        st.warning(
+            "Ce lien de commande n'est plus valide. Demandez votre lien "
+            "personnel au producteur — ou commandez quand même en indiquant "
+            "votre commerce ci-dessous."
+        )
+    else:
+        st.info(
+            "Ouvrez **votre lien personnel** pour que votre commerce soit "
+            "reconnu automatiquement. Vous ne l'avez pas sous la main ? "
+            "Indiquez simplement votre commerce ci-dessous."
+        )
 
-with st.expander("Mon commerce n'est pas dans la liste", expanded=not retailers):
-    st.caption(
-        "Exceptionnel : normalement votre commerce est déjà enregistré. "
-        "Le producteur vous ajoutera à la liste après cette commande."
-    )
-    fb_business = st.text_input("Nom de votre commerce", max_chars=200, key="mk_fb_business")
-    fb_contact = st.text_input("Votre nom", max_chars=200, key="mk_fb_contact")
-    fb_c1, fb_c2 = st.columns(2)
-    fb_phone = fb_c1.text_input("Téléphone", key="mk_fb_phone")
-    fb_email = fb_c2.text_input("Courriel", key="mk_fb_email")
+fb_business = fb_contact = fb_phone = fb_email = ""
+if not selected:
+    with st.container(border=True):
+        st.markdown("**Votre commerce**")
+        fb_business = st.text_input("Nom de votre commerce", max_chars=200, key="mk_fb_business")
+        fb_contact = st.text_input("Votre nom", max_chars=200, key="mk_fb_contact")
+        fb_c1, fb_c2 = st.columns(2)
+        fb_phone = fb_c1.text_input("Téléphone", key="mk_fb_phone")
+        fb_email = fb_c2.text_input("Courriel", key="mk_fb_email")
 
 fb_business = (fb_business or "").strip()
 if selected:
@@ -190,8 +198,8 @@ elif fb_business:
 else:
     buyer_label = None
 
-# --- Étape 2 : les produits ---------------------------------------
-step(2, "Vos produits", "Ajustez les quantités avec les boutons + et −.")
+# --- Étape 1 : les produits ---------------------------------------
+step(1, "Vos produits", "Ajustez les quantités avec les boutons + et −.")
 
 by_category: dict[str, list[dict]] = {}
 for product in products:
@@ -263,8 +271,8 @@ cart = [
     if int(st.session_state.get(qty_key(p["id"]), 0)) > 0
 ]
 
-# --- Étape 3 : envoi ----------------------------------------------
-step(3, "Envoi")
+# --- Étape 2 : envoi ----------------------------------------------
+step(2, "Envoi")
 
 with st.expander("Date de livraison souhaitée et notes (facultatif)"):
     requested_date = st.date_input(
@@ -305,7 +313,7 @@ with st.container(border=True):
 
     blockers = []
     if not buyer_label:
-        blockers.append("choisissez votre commerce")
+        blockers.append("indiquez votre commerce")
     if not cart:
         blockers.append("ajoutez au moins un produit")
 
