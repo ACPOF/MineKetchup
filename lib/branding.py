@@ -82,7 +82,13 @@ hr { border-color: var(--mk-border); }
 /* Le logo fourni est noir sur blanc : inversé, il devient blanc et se fond
    dans le thème sombre sans rectangle blanc autour. */
 .mk-logo-img.mk-invert { filter: invert(1); }
-.mk-tag { color: var(--mk-muted); font-size: .83rem; margin-top: .5rem; }
+/* Sous-titre de page (« Commande détaillants », « Tableau de bord ») : c'est
+   le titre de l'écran, il mérite d'être lisible sous le lettrage de marque. */
+.mk-tag {
+  font-family: var(--mk-serif); font-weight: 600;
+  color: var(--mk-text); font-size: 1.32rem; letter-spacing: .005em;
+  margin-top: .75rem;
+}
 .mk-rule {
   height: 3px; border: 0; border-radius: 3px; margin: 0 0 .5rem 0;
   background: linear-gradient(90deg, var(--mk-red), var(--mk-gold) 55%, transparent);
@@ -272,6 +278,7 @@ hr { border-color: var(--mk-border); }
   .mk-wm-top { font-size: 1.3rem; }
   .mk-wm-bot { font-size: .78rem; }
   .mk-logo-img { height: 54px; }
+  .mk-tag { font-size: 1.18rem; }
 }
 </style>
 """
