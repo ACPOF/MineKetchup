@@ -19,6 +19,8 @@ Aucun compte, aucun mot de passe, aucun paiement.
 
 from __future__ import annotations
 
+import uuid
+
 import streamlit as st
 
 from lib.branding import BRAND, brand_header, footer, inject_theme, money, step
@@ -328,7 +330,14 @@ with st.container(border=True):
 
 if send:
     client = get_public_client()
+    # L'identifiant est généré ici, pas par la base : la clé anon n'a aucune
+    # policy SELECT sur `orders` (et c'est voulu — un détaillant ne doit pas
+    # pouvoir relire les commandes). Sans cet id, il faudrait demander à
+    # PostgREST de renvoyer la ligne insérée, ce qu'il refuse faute de droit
+    # de lecture : « new row violates row-level security policy ».
+    order_id = str(uuid.uuid4())
     order_payload = {
+        "id": order_id,
         "retailer_id": selected["id"] if selected else None,
         "retailer_name": selected["business_name"] if selected else fb_business,
         "contact_name": None if selected else ((fb_contact or "").strip() or None),
@@ -338,8 +347,8 @@ if send:
         "notes": (notes or "").strip() or None,
     }
     try:
-        order_res = client.table("orders").insert(order_payload).execute()
-        order_id = order_res.data[0]["id"]
+        # returning="minimal" : on n'exige aucune relecture après l'écriture.
+        client.table("orders").insert(order_payload, returning="minimal").execute()
 
         items_payload = [
             {
@@ -352,7 +361,7 @@ if send:
             }
             for c in cart
         ]
-        client.table("order_items").insert(items_payload).execute()
+        client.table("order_items").insert(items_payload, returning="minimal").execute()
 
         st.session_state["mk_receipt"] = {
             "ref": str(order_id).split("-")[0].upper(),
