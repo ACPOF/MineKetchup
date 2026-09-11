@@ -162,7 +162,11 @@ renvoyer son lien).
     commerce (id + nom) — elle ne peut ni lire la table `retailers`, ni
     l'énumérer. Un code fait 8 caractères sur un alphabet de 32, soit plus de
     1000 milliards de combinaisons : non devinable ;
-  - **insérer** des commandes et des lignes de commande.
+  - **insérer** des commandes et des lignes de commande — sans jamais les
+    relire. Les écritures utilisent `returning="minimal"` et un identifiant de
+    commande généré côté app : PostgREST ne renvoie donc pas la ligne insérée,
+    ce qu'il refuserait de toute façon faute de policy `SELECT` (erreur
+    `42501 new row violates row-level security policy`).
   Elle ne peut relire aucune commande, ni lire la table `retailers` complète.
 - `ADMIN_PASSWORD` est une protection simple, suffisante pour un seul
   producteur. Pour plusieurs comptes admin, migrer vers Supabase Auth.
