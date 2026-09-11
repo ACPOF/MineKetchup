@@ -136,6 +136,44 @@ def refresh() -> None:
     st.rerun()
 
 
+def register_from_order(order: dict) -> tuple[bool, str]:
+    """Crée un détaillant à partir d'une commande envoyée sans lien personnel.
+
+    Rattache aussi les commandes déjà reçues de ce commerce, pour que
+    l'historique soit complet et que l'avertissement disparaisse partout.
+    Retourne (succès, message).
+    """
+    name = (order.get("retailer_name") or "").strip()
+    if not name:
+        return False, "Cette commande ne porte aucun nom de commerce."
+    try:
+        created = (
+            client.table("retailers")
+            .insert(
+                {
+                    "business_name": name,
+                    "contact_name": (order.get("contact_name") or "").strip() or None,
+                    "phone": (order.get("phone") or "").strip() or None,
+                    "email": (order.get("email") or "").strip() or None,
+                }
+            )
+            .execute()
+        )
+        retailer_id = created.data[0]["id"]
+        client.table("orders").update({"retailer_id": retailer_id}).eq(
+            "retailer_name", name
+        ).is_("retailer_id", "null").execute()
+        return True, (
+            f"« {name} » est enregistré. Son lien de commande personnel "
+            "est dans l'onglet « Détaillants » — envoyez-le-lui."
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, (
+            f"Impossible d'enregistrer « {name} » — un commerce du même nom "
+            f"existe peut-être déjà.\n\n`{exc}`"
+        )
+
+
 # ------------------------------------------------------------------
 # En-tête
 # ------------------------------------------------------------------
@@ -207,10 +245,23 @@ with tab_orders:
                 with info_col:
                     if not buyer["registered"]:
                         st.warning(
-                            "Commerce **non enregistré** — ajoutez-le dans l'onglet "
-                            "« Détaillants » pour ses prochaines commandes.",
+                            "Commerce **non enregistré** : cette commande est "
+                            "arrivée sans lien personnel.",
                             icon="⚠️",
                         )
+                        if st.button(
+                            "➕ Enregistrer ce commerce",
+                            key=f"reg_{order['id']}",
+                            width="stretch",
+                            help="Crée le détaillant et lui rattache ses commandes "
+                            "déjà reçues. Il aura ensuite son lien personnel.",
+                        ):
+                            ok, message = register_from_order(order)
+                            if ok:
+                                st.success(message)
+                                refresh()
+                            else:
+                                st.error(message)
                     st.markdown(f"**Contact :** {buyer['contact_name'] or '—'}")
                     st.markdown(f"**Téléphone :** {buyer['phone'] or '—'}")
                     st.markdown(f"**Courriel :** {buyer['email'] or '—'}")

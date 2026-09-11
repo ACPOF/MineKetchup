@@ -132,7 +132,7 @@ if st.session_state.get("mk_receipt"):
 # ------------------------------------------------------------------
 # Page de commande
 # ------------------------------------------------------------------
-brand_header("Commande détaillants — 2 clics, c'est envoyé")
+brand_header("Commande détaillants")
 
 try:
     products = load_products()

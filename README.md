@@ -127,8 +127,11 @@ Boutons utiles :
 ### Un détaillant sans son lien
 
 Il peut quand même commander : la page lui propose d'indiquer son commerce et
-son nom à la main. Ces commandes sont signalées dans l'onglet Commandes, avec
-un rappel de lui renvoyer son lien. Ça reste l'exception, pas le chemin normal.
+son nom à la main. Ces commandes sont signalées dans l'onglet Commandes par un
+avertissement, avec un bouton **➕ Enregistrer ce commerce** : un clic crée le
+détaillant à partir des coordonnées de la commande, lui rattache les commandes
+déjà reçues sous ce nom, et lui attribue son lien personnel (à récupérer dans
+l'onglet Détaillants). Ça reste l'exception, pas le chemin normal.
 
 ## 5. Gérer le catalogue
 
