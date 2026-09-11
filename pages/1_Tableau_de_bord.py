@@ -4,14 +4,16 @@ Mine de Ketchup — tableau de bord du producteur.
 Trois sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
   1. Commandes  : consulter les commandes reçues et changer leur statut.
   2. Produits   : gérer le catalogue (ajouter / modifier / activer / réordonner).
-  3. Détaillants: gérer la liste déroulante de la page de commande. C'est ici
-                  qu'on ajoute un détaillant UNE SEULE FOIS ; ensuite il
-                  commande en 3 clics.
+  3. Détaillants: gérer les commerces autorisés à commander. C'est ici qu'on
+                  ajoute un détaillant UNE SEULE FOIS et qu'on récupère son
+                  lien de commande personnel ; ensuite il commande en 2 clics.
 
 Utilise la clé service_role de Supabase (accès complet), d'où le mot de passe.
 """
 
 from __future__ import annotations
+
+import secrets
 
 import pandas as pd
 import streamlit as st
@@ -35,6 +37,27 @@ STATUS_ICON = {
     "annulée": "⚪",
 }
 OPEN_STATUSES = ["nouvelle", "en préparation", "prête"]
+
+# Même alphabet que la fonction gen_retailer_code() de supabase_schema.sql :
+# sans caractères ambigus (ni O/0, ni I/1), donc dictable au téléphone.
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+CODE_LENGTH = 8
+
+
+def new_access_code() -> str:
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+
+
+def order_link(code: str | None) -> str:
+    """Lien de commande personnel d'un détaillant.
+
+    `APP_URL` (secret optionnel) est l'adresse publique de l'app. Sans lui, on
+    n'affiche que la partie relative, qu'il suffit de coller après l'adresse.
+    """
+    if not code:
+        return ""
+    base = str(st.secrets.get("APP_URL", "")).strip().rstrip("/")
+    return f"{base}/?c={code}" if base else f"?c={code}"
 
 
 # ------------------------------------------------------------------
@@ -367,10 +390,18 @@ with tab_products:
 with tab_retailers:
     st.markdown("### Détaillants enregistrés")
     st.caption(
-        "Ce sont les commerces proposés dans la liste déroulante de la page de "
-        "commande. Ajoutez un détaillant une seule fois ici : ensuite il commande "
-        "en 3 clics, sans jamais retaper ses coordonnées."
+        "Chaque détaillant a un **lien de commande personnel** à lui envoyer une "
+        "seule fois. Ce lien l'identifie automatiquement : il commande en 2 clics, "
+        "sans jamais retaper ses coordonnées. Aucune liste de détaillants n'est "
+        "affichée sur la page publique — votre clientèle reste confidentielle."
     )
+    if not str(st.secrets.get("APP_URL", "")).strip():
+        st.warning(
+            "Ajoutez le secret **`APP_URL`** (l'adresse publique de l'app, par "
+            "exemple `https://votre-app.streamlit.app`) pour que les liens "
+            "ci-dessous soient complets et copiables tels quels.",
+            icon="🔗",
+        )
 
     try:
         retailers = load_retailers()
@@ -425,6 +456,17 @@ with tab_retailers:
                         ).eq("id", retailer["id"]).execute()
                         st.rerun()
 
+                code = retailer.get("access_code")
+                if code:
+                    st.caption("Lien de commande personnel — à envoyer à ce détaillant :")
+                    st.code(order_link(code), language=None)
+                else:
+                    st.warning(
+                        "Pas de lien personnel : relancez `supabase_schema.sql` "
+                        "dans Supabase pour en générer un.",
+                        icon="⚠️",
+                    )
+
                 with st.expander("Modifier"):
                     with st.form(f"edit_retailer_{retailer['id']}"):
                         r_name = st.text_input("Nom du commerce *", value=retailer["business_name"])
@@ -455,6 +497,23 @@ with tab_retailers:
                                 except Exception as exc:  # noqa: BLE001
                                     st.error(f"Échec de l'enregistrement : `{exc}`")
 
+                    st.divider()
+                    st.caption(
+                        "Régénérer le lien rend l'ancien inutilisable (en moins "
+                        "d'une minute) : à faire si le lien a circulé par erreur."
+                    )
+                    if st.checkbox(
+                        "Je veux régénérer le lien de ce détaillant",
+                        key=f"regen_ok_{retailer['id']}",
+                    ) and st.button("🔗 Régénérer le lien", key=f"regen_{retailer['id']}"):
+                        try:
+                            client.table("retailers").update(
+                                {"access_code": new_access_code()}
+                            ).eq("id", retailer["id"]).execute()
+                            st.rerun()
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(f"Échec de la régénération : `{exc}`")
+
         if not visible:
             st.info("Aucun détaillant ne correspond à cette recherche.")
 
@@ -480,7 +539,11 @@ with tab_retailers:
                                     "notes": a_notes.strip() or None,
                                 }
                             ).execute()
-                            st.success(f"« {a_name.strip()} » peut maintenant commander.")
+                            st.success(
+                                f"« {a_name.strip()} » est ajouté. Son lien de "
+                                "commande personnel apparaît sur sa carte "
+                                "ci-dessus — envoyez-le-lui."
+                            )
                             st.rerun()
                         except Exception as exc:  # noqa: BLE001
                             st.error(

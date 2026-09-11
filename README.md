@@ -5,19 +5,26 @@ Mine de Ketchup d'envoyer leurs commandes en ligne, **sans compte, sans mot de
 passe et sans paiement**.
 
 Le principe : le producteur enregistre un détaillant **une seule fois** dans le
-tableau de bord ; ensuite, ce détaillant commande en **3 clics** :
+tableau de bord, puis lui envoie son **lien de commande personnel**
+(`.../?c=XXXXXXXX`). Ensuite, ce détaillant commande en **2 clics** :
 
-1. il se choisit dans la liste déroulante,
+1. il ouvre son lien — la page sait déjà quel commerce commande,
 2. il ajuste les quantités avec les gros boutons `+` / `−`,
 3. il envoie.
 
 Aucune coordonnée n'est retapée à chaque commande.
 
+> **Pourquoi un lien personnel plutôt qu'une liste déroulante ?** Une liste
+> déroulante devrait charger tous les noms de commerces dans le navigateur de
+> chaque visiteur : la liste de clients de Mine de Ketchup serait lisible par
+> n'importe qui. Avec le lien personnel, la page publique ne peut résoudre
+> qu'un seul code à la fois et n'affiche jamais de liste.
+
 ## Structure du projet
 
 ```
 MineKetchup/
-├── app.py                        # Page publique : commande en 3 clics
+├── app.py                        # Page publique : commande en 2 clics
 ├── pages/
 │   └── 1_Tableau_de_bord.py      # Admin : commandes + produits + détaillants
 ├── lib/
@@ -37,8 +44,10 @@ MineKetchup/
 2. Collez le contenu de `supabase_schema.sql` et exécutez-le.
    Le script est **idempotent** : on peut le relancer sur une base existante
    sans perdre les commandes déjà reçues. Il crée / met à jour :
-   - la table **`retailers`** (les détaillants de la liste déroulante) ;
-   - la vue **`retailers_public`** (id + nom du commerce seulement) ;
+   - la table **`retailers`**, avec un **code d'accès unique** par détaillant ;
+   - la fonction **`retailer_by_code`**, seule porte d'entrée publique : elle
+     traduit un code en nom de commerce, un à la fois, et ne peut rien lister
+     (l'ancienne vue `retailers_public` est supprimée) ;
    - la colonne **`orders.retailer_id`** et rend `orders.retailer_name`
      optionnel (il ne sert plus que de secours) ;
    - la colonne **`products.image_url`** ;
@@ -52,10 +61,21 @@ MineKetchup/
 ## 2. Configurer les secrets
 
 Copiez `.streamlit/secrets.toml.example` vers `.streamlit/secrets.toml` et
-remplissez les 4 valeurs. **Aucun nouveau secret n'a été ajouté** par la version
-« détaillants enregistrés » : la table `retailers` et la vue `retailers_public`
-utilisent les mêmes clés. Ce fichier ne doit jamais être committé — `.gitignore`
+remplissez les valeurs. Ce fichier ne doit jamais être committé — `.gitignore`
 l'exclut déjà.
+
+Un secret s'ajoute aux 4 existants :
+
+| Secret | Obligatoire | Rôle |
+|---|---|---|
+| `SUPABASE_URL` | oui | projet Supabase |
+| `SUPABASE_ANON_KEY` | oui | page de commande (limitée par RLS) |
+| `SUPABASE_SERVICE_ROLE_KEY` | oui | tableau de bord uniquement |
+| `ADMIN_PASSWORD` | oui | accès au tableau de bord |
+| `APP_URL` | recommandé | adresse publique de l'app, pour composer les liens de commande personnels affichés dans le tableau de bord |
+
+Sans `APP_URL`, tout fonctionne, mais le tableau de bord n'affiche que la partie
+`?c=XXXXXXXX` du lien, à coller derrière votre adresse.
 
 ## 3. Tester en local
 
@@ -68,20 +88,32 @@ streamlit run app.py
 - `http://localhost:8501/Tableau_de_bord` → tableau de bord, protégé par
   `ADMIN_PASSWORD`.
 
-## 4. Démarrer : saisir vos détaillants
+## 4. Démarrer : saisir vos détaillants et envoyer leurs liens
 
 C'est la seule étape manuelle avant que tout roule tout seul.
 
-Tableau de bord → onglet **🏪 Détaillants** → **➕ Ajouter un détaillant** :
-nom du commerce (obligatoire), contact, téléphone, courriel, notes internes.
+1. Tableau de bord → onglet **🏪 Détaillants** → **➕ Ajouter un détaillant** :
+   nom du commerce (obligatoire), contact, téléphone, courriel, notes internes.
+2. Sa carte affiche aussitôt son **lien de commande personnel**. Copiez-le et
+   envoyez-le-lui une fois par courriel — il n'a qu'à le mettre en favori.
 
-Dès qu'un détaillant est dans la liste, il apparaît dans la liste déroulante de
-la page de commande et peut commander en 3 clics. Pour retirer un détaillant de
-la liste sans perdre son historique : bouton **Désactiver**.
+Boutons utiles :
+
+- **Désactiver** : le détaillant ne peut plus commander (son lien cesse de
+  fonctionner), sans rien perdre de son historique.
+- **Modifier → 🔗 Régénérer le lien** : crée un nouveau code et rend l'ancien
+  inutilisable, si un lien a circulé par erreur. Comptez moins d'une minute
+  pour que l'ancien lien cesse de fonctionner (durée du cache).
 
 > Les téléphones et courriels saisis ici ne sont **jamais** exposés à la page
-> publique : celle-ci ne lit que la vue `retailers_public`, qui ne contient que
-> l'id et le nom du commerce.
+> publique, et la liste des détaillants non plus : la page publique ne peut
+> qu'appeler `retailer_by_code`, qui répond pour un code à la fois.
+
+### Un détaillant sans son lien
+
+Il peut quand même commander : la page lui propose d'indiquer son commerce et
+son nom à la main. Ces commandes sont signalées dans l'onglet Commandes, avec
+un rappel de lui renvoyer son lien. Ça reste l'exception, pas le chemin normal.
 
 ## 5. Gérer le catalogue
 
@@ -103,9 +135,9 @@ une carte dépliable par commande (coordonnées du détaillant, articles, date
 souhaitée, notes) avec changement de statut
 (`nouvelle` → `en préparation` → `prête` → `complétée` / `annulée`).
 
-Une commande envoyée via le formulaire de secours (« mon commerce n'est pas dans
-la liste ») est signalée par un avertissement : c'est le rappel d'ajouter ce
-commerce dans l'onglet Détaillants.
+Une commande envoyée sans lien personnel est signalée par un avertissement :
+c'est le rappel d'ajouter ce commerce dans l'onglet Détaillants (ou de lui
+renvoyer son lien).
 
 ## 7. Déployer
 
@@ -126,7 +158,10 @@ commerce dans l'onglet Détaillants.
 - La clé **anon**, utilisée par la page publique, est limitée par RLS. Elle peut
   uniquement :
   - lire les produits **actifs** ;
-  - lire la vue `retailers_public` (id + nom du commerce) ;
+  - appeler `retailer_by_code` avec **un** code, qui renvoie au plus un
+    commerce (id + nom) — elle ne peut ni lire la table `retailers`, ni
+    l'énumérer. Un code fait 8 caractères sur un alphabet de 32, soit plus de
+    1000 milliards de combinaisons : non devinable ;
   - **insérer** des commandes et des lignes de commande.
   Elle ne peut relire aucune commande, ni lire la table `retailers` complète.
 - `ADMIN_PASSWORD` est une protection simple, suffisante pour un seul
@@ -141,8 +176,9 @@ couleurs, il suffit de modifier le dictionnaire `BRAND` en haut de
 
 Choix faits pour le mobile (les détaillants commanderont surtout au téléphone) :
 cartes produits à grande cible tactile, boutons `+` / `−` de 48 px qui restent
-côte à côte même sur petit écran, options facultatives repliées, et bouton
-d'envoi qui rappelle ce qui manque tant que la commande est incomplète.
+côte à côte même sur petit écran, options facultatives repliées, bandeau
+« Commande pour <commerce> » dès l'ouverture du lien, et bouton d'envoi qui
+rappelle ce qui manque tant que la commande est incomplète.
 
 ## Améliorations possibles
 
@@ -150,4 +186,5 @@ d'envoi qui rappelle ce qui manque tant que la commande est incomplète.
   (webhook Supabase + Resend/SendGrid).
 - Export CSV/Excel des commandes.
 - Historique des commandes par détaillant dans le tableau de bord.
+- Envoi automatique du lien personnel par courriel à l'ajout d'un détaillant.
 - Photos des produits (ajouter les URL dans l'onglet Produits).

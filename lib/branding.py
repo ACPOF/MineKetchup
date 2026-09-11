@@ -100,6 +100,17 @@ hr { border-color: var(--mk-border); }
   color: var(--mk-muted); font-size: .74rem; letter-spacing: .02em;
 }
 .mk-incart { color: var(--mk-green); font-size: .8rem; font-weight: 600; margin-top: .55rem; }
+
+/* Bandeau « Commande pour <commerce> » : le lien personnel a déjà identifié
+   le détaillant, il n'a donc plus rien à choisir ni à saisir. */
+.mk-who {
+  display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+  background: var(--mk-surface); border: 1px solid var(--mk-border);
+  border-left: 3px solid var(--mk-green);
+  border-radius: var(--mk-radius); padding: .75rem 1rem;
+}
+.mk-who-label { color: var(--mk-muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+.mk-who-name { font-family: var(--mk-serif); font-weight: 600; font-size: 1.12rem; }
 .mk-thumb {
   width: 100%; max-height: 130px; object-fit: cover;
   border-radius: 10px; margin-bottom: .6rem; border: 1px solid var(--mk-border);
