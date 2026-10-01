@@ -30,6 +30,7 @@ MineKetchup/
 ├── lib/
 │   ├── supabase_client.py        # Connexion à Supabase (clé anon / service_role)
 │   ├── branding.py               # Logo, palette, CSS et composants partagés
+│   ├── indicateurs.py            # Calcul des indicateurs (sans Streamlit)
 │   ├── settings.py               # Config : env → st.secrets → secrets.toml
 │   ├── mailer.py                 # Envoi SMTP (jamais bloquant)
 │   ├── emails.py                 # Gabarits des trois courriels
@@ -82,7 +83,7 @@ Un secret s'ajoute aux 4 existants :
 | `SUPABASE_SERVICE_ROLE_KEY` | oui | tableau de bord uniquement |
 | `ADMIN_PASSWORD` | oui | accès au tableau de bord |
 | `APP_URL` | recommandé | adresse publique de l'app, pour composer les liens de commande personnels affichés dans le tableau de bord |
-| `SMTP_*` | optionnel | envoi des courriels automatiques — voir la section 7 |
+| `SMTP_*` | optionnel | envoi des courriels automatiques — voir la section 8 |
 | `ORDER_NOTIFY_EMAIL` | optionnel | qui est alerté à chaque nouvelle commande |
 | `ACCOUNTANT_EMAIL` | optionnel | destinataire du rapport hebdomadaire (secret GitHub, pas Streamlit) |
 
@@ -157,7 +158,39 @@ Tableau de bord → onglet **🧂 Produits** :
 - Un prix à `0` signifie « aucun prix affiché » (la carte produit montre alors
   seulement le format).
 
-## 6. Suivre les commandes
+## 6. Lire les indicateurs
+
+Tableau de bord → onglet **📊 Indicateurs**, le premier. Choisissez la période
+(30 jours, 90 jours, 12 mois) : chaque écart se compare à la période
+précédente **de même durée**.
+
+| Indicateur | Ce qu'il mesure |
+|---|---|
+| Ventes complétées | commandes passées à « complétée » pendant la période |
+| Commandes reçues | par date de réception, annulées exclues |
+| Panier moyen | ventes ÷ nombre de commandes complétées |
+| Détaillants actifs | commerces ayant commandé au moins une fois |
+| Articles commandés | total des quantités — reste juste même sans prix |
+| Délai de traitement | moyenne entre la réception et la complétion |
+| Commandes annulées | pour surveiller les abandons |
+
+Puis l'évolution sur 12 mois (ventes et commandes, **deux graphiques séparés**
+— jamais deux échelles sur un même axe), les produits et détaillants les plus
+actifs sur la période, les commandes en cours à préparer, et les **détaillants
+à relancer** : ceux qui n'ont rien commandé depuis 60 jours.
+
+> **Deux notions de date coexistent, et les confondre fausserait tout.** Une
+> commande est *reçue* à sa création ; une vente est *réalisée* quand la
+> commande passe à « complétée ». Chaque libellé dit laquelle des deux il
+> utilise. Le délai de traitement n'est calculé que sur les commandes dont le
+> changement de statut a vraiment été enregistré : les commandes antérieures au
+> suivi sont écartées plutôt que comptées à zéro jour.
+
+Les graphiques ne portent **qu'une série chacun**, la grandeur se lisant sur la
+longueur des barres. La couleur ne code donc aucune information — ce qui évite
+les palettes multicolores illisibles pour un daltonien.
+
+## 7. Suivre les commandes
 
 Tableau de bord → onglet **📋 Commandes** : compteurs par statut, filtre, puis
 une carte dépliable par commande (coordonnées du détaillant, articles, date
@@ -168,7 +201,7 @@ Une commande envoyée sans lien personnel est signalée par un avertissement :
 c'est le rappel d'ajouter ce commerce dans l'onglet Détaillants (ou de lui
 renvoyer son lien).
 
-## 7. Courriels automatiques
+## 8. Courriels automatiques
 
 Trois courriels, tous optionnels : **sans configuration SMTP, l'app fonctionne
 exactement comme avant et n'envoie rien**.
@@ -246,7 +279,7 @@ python scripts/rapport_hebdo.py --debut 2026-09-01 --fin 2026-09-30
 python scripts/rapport_hebdo.py --essai               # affiche sans envoyer
 ```
 
-## 8. Déployer
+## 9. Déployer
 
 **Streamlit Community Cloud** :
 
