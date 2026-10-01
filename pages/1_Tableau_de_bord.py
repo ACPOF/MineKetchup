@@ -4,10 +4,12 @@ Mine de Ketchup — tableau de bord de gestion.
 Page volontairement absente du menu de navigation : on y accède par son
 adresse directe (.../Tableau_de_bord), et elle reste protégée par mot de passe.
 
-Trois sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
-  1. Commandes  : consulter les commandes reçues et changer leur statut.
-  2. Produits   : gérer le catalogue (ajouter / modifier / activer / réordonner).
-  3. Détaillants: gérer les commerces autorisés à commander. C'est ici qu'on
+Quatre sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
+  1. Indicateurs: ventes, commandes, délais, produits et détaillants les plus
+                  actifs, et qui relancer.
+  2. Commandes  : consulter les commandes reçues et changer leur statut.
+  3. Produits   : gérer le catalogue (ajouter / modifier / activer / réordonner).
+  4. Détaillants: gérer les commerces autorisés à commander. C'est ici qu'on
                   ajoute un détaillant UNE SEULE FOIS et qu'on récupère son
                   lien de commande personnel ; ensuite il commande en 2 clics.
 
@@ -17,11 +19,14 @@ Utilise la clé service_role de Supabase (accès complet), d'où le mot de passe
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
-from lib.branding import brand_header, inject_theme, money
+from lib import indicateurs as ind
+from lib.branding import BRAND, brand_header, inject_theme, money
 from lib.supabase_client import get_admin_client
 
 st.set_page_config(
@@ -193,9 +198,230 @@ with head_right:
         unsafe_allow_html=True,
     )
 
-tab_orders, tab_products, tab_retailers = st.tabs(
-    ["📋 Commandes", "🧂 Produits", "🏪 Détaillants"]
+tab_kpi, tab_orders, tab_products, tab_retailers = st.tabs(
+    ["📊 Indicateurs", "📋 Commandes", "🧂 Produits", "🏪 Détaillants"]
 )
+
+
+# ==================================================================
+# 0. INDICATEURS
+# ==================================================================
+# Parti pris de lecture : chaque graphique ne porte QU'UNE série, et la
+# grandeur se lit sur la longueur des barres. La couleur ne code donc rien —
+# ce qui évite le piège des palettes à plusieurs teintes, illisibles pour un
+# daltonien, et interdit l'axe double (deux échelles sur un même graphique).
+# Deux mesures de nature différente = deux graphiques côte à côte.
+TEINTE = BRAND["red"]
+
+PERIODES = {
+    "30 jours": 30,
+    "90 jours": 90,
+    "12 mois": 365,
+}
+
+
+def _barres(donnees: list[dict], champ_valeur: str, champ_categorie: str,
+            titre_valeur: str, horizontal: bool = False, format_valeur: str = ",.0f"):
+    """Graphique à barres, série unique, habillé pour le thème sombre."""
+    source = pd.DataFrame(donnees)
+    if source.empty:
+        return None
+
+    axe_categorie = alt.Axis(
+        labelColor=BRAND["muted"], titleColor=BRAND["muted"],
+        domainColor=BRAND["border"], tickColor=BRAND["border"], grid=False,
+    )
+    # Des comptages n'ont pas de demi-unité : sans pas minimal, l'axe place des
+    # graduations fractionnaires que le format arrondit, et on lit « 1 1 2 2 ».
+    entiers = all(float(d[champ_valeur]).is_integer() for d in donnees)
+    axe_valeur = alt.Axis(
+        labelColor=BRAND["muted"], titleColor=BRAND["muted"],
+        gridColor=BRAND["border"], gridOpacity=0.5, domain=False, ticks=False,
+        format=format_valeur, tickMinStep=1 if entiers else alt.Undefined,
+    )
+    infobulle = [
+        alt.Tooltip(f"{champ_categorie}:N", title=""),
+        alt.Tooltip(f"{champ_valeur}:Q", title=titre_valeur, format=format_valeur),
+    ]
+
+    if horizontal:
+        base = alt.Chart(source).encode(
+            x=alt.X(f"{champ_valeur}:Q", title=titre_valeur, axis=axe_valeur),
+            y=alt.Y(f"{champ_categorie}:N", title=None, sort="-x", axis=axe_categorie),
+            tooltip=infobulle,
+        )
+        # Peu de barres : la valeur au bout évite d'avoir à survoler.
+        graphique = base.mark_bar(
+            cornerRadiusTopRight=4, cornerRadiusBottomRight=4, color=TEINTE, height=18
+        ) + base.mark_text(
+            align="left", dx=6, color=BRAND["text"], fontSize=12
+        ).encode(text=alt.Text(f"{champ_valeur}:Q", format=format_valeur))
+    else:
+        graphique = alt.Chart(source).mark_bar(
+            cornerRadiusTopLeft=4, cornerRadiusTopRight=4, color=TEINTE, size=18
+        ).encode(
+            x=alt.X(f"{champ_categorie}:N", title=None, sort=None, axis=axe_categorie),
+            y=alt.Y(f"{champ_valeur}:Q", title=titre_valeur, axis=axe_valeur),
+            tooltip=infobulle,
+        )
+
+    return graphique.properties(height=240).configure_view(
+        strokeWidth=0
+    ).configure(background="transparent", font="Inter, sans-serif")
+
+
+def _variation(actuel: float, precedent: float) -> str | None:
+    """Écart en pourcentage par rapport à la période précédente."""
+    if not precedent:
+        return None
+    return f"{(actuel - precedent) / precedent * 100:+.0f} %"
+
+
+with tab_kpi:
+    orders, items = load_orders()
+    try:
+        retailers_kpi = load_retailers()
+    except Exception:  # noqa: BLE001 — table absente : les autres mesures tiennent
+        retailers_kpi = []
+
+    if not orders:
+        st.info(
+            "Aucune commande reçue pour l'instant : les indicateurs apparaîtront "
+            "dès la première commande."
+        )
+    else:
+        choix = st.segmented_control(
+            "Période", list(PERIODES), default="90 jours", key="kpi_periode"
+        ) or "90 jours"
+        fin = datetime.now(ind.FUSEAU).date()
+        debut = fin - timedelta(days=PERIODES[choix] - 1)
+        debut_prec, fin_prec = ind.periode_precedente(debut, fin)
+
+        actuel = ind.calculer(orders, items, debut, fin)
+        precedent = ind.calculer(orders, items, debut_prec, fin_prec)
+        st.caption(
+            f"Du {debut} au {fin} — les écarts comparent à la période "
+            f"précédente de même durée ({debut_prec} au {fin_prec})."
+        )
+
+        l1 = st.columns(4)
+        l1[0].metric(
+            "Ventes complétées", money(actuel["ventes"]) or "—",
+            _variation(actuel["ventes"], precedent["ventes"]),
+            help="Somme des commandes passées à « complétée » pendant la période.",
+        )
+        l1[1].metric(
+            "Commandes reçues", actuel["nb_recues"],
+            _variation(actuel["nb_recues"], precedent["nb_recues"]),
+            help="Par date de réception. Les commandes annulées sont exclues.",
+        )
+        l1[2].metric(
+            "Panier moyen", money(actuel["panier_moyen"]) or "—",
+            _variation(actuel["panier_moyen"], precedent["panier_moyen"]),
+            help="Ventes complétées divisées par le nombre de commandes complétées.",
+        )
+        l1[3].metric(
+            "Détaillants actifs", actuel["detaillants_actifs"],
+            _variation(actuel["detaillants_actifs"], precedent["detaillants_actifs"]),
+            help="Commerces ayant passé au moins une commande pendant la période.",
+        )
+
+        l2 = st.columns(3)
+        l2[0].metric(
+            "Articles commandés", f"{actuel['articles']:g}",
+            _variation(actuel["articles"], precedent["articles"]),
+            help="Total des quantités commandées — utile même sans prix au catalogue.",
+        )
+        delai = actuel["delai_moyen"]
+        l2[1].metric(
+            "Délai de traitement", f"{delai:.1f} j" if delai is not None else "—",
+            _variation(delai or 0, precedent["delai_moyen"] or 0),
+            delta_color="inverse",
+            help="Moyenne entre la réception et le passage à « complétée », sur "
+            f"{actuel['nb_delais_mesures']} commande(s) mesurée(s). Les commandes "
+            "antérieures au suivi des statuts sont écartées.",
+        )
+        l2[2].metric(
+            "Commandes annulées", actuel["annulees"],
+            _variation(actuel["annulees"], precedent["annulees"]),
+            delta_color="inverse",
+        )
+
+        if actuel["ventes"] == 0 and actuel["articles"] > 0:
+            st.warning(
+                "Les montants sont à zéro parce que le catalogue n'a pas encore de "
+                "prix. Les indicateurs de volume (commandes, articles, détaillants) "
+                "restent justes. Saisissez les prix dans l'onglet « Produits ».",
+                icon="💲",
+            )
+
+        st.markdown("#### Évolution sur 12 mois")
+        mensuel = ind.par_mois(orders, items, nb_mois=12)
+        g1, g2 = st.columns(2)
+        with g1:
+            st.caption("Ventes complétées par mois")
+            graphique = _barres(mensuel, "ventes", "mois", "Ventes ($)", format_valeur=",.0f")
+            if graphique is not None:
+                st.altair_chart(graphique, width="stretch")
+        with g2:
+            st.caption("Commandes reçues par mois")
+            graphique = _barres(mensuel, "commandes", "mois", "Commandes")
+            if graphique is not None:
+                st.altair_chart(graphique, width="stretch")
+
+        st.markdown(f"#### Sur la période ({choix})")
+        g3, g4 = st.columns(2)
+        with g3:
+            st.caption("Produits les plus commandés (quantité)")
+            produits = ind.top_produits(orders, items, debut, fin)
+            graphique = _barres(produits, "quantite", "produit", "Quantité", horizontal=True)
+            if graphique is not None:
+                st.altair_chart(graphique, width="stretch")
+            else:
+                st.caption("Aucune commande sur la période.")
+        with g4:
+            st.caption("Détaillants les plus actifs (commandes)")
+            clients = ind.top_detaillants(orders, items, debut, fin)
+            graphique = _barres(clients, "commandes", "detaillant", "Commandes", horizontal=True)
+            if graphique is not None:
+                st.altair_chart(graphique, width="stretch")
+            else:
+                st.caption("Aucune commande sur la période.")
+
+        st.markdown("#### À suivre maintenant")
+        g5, g6 = st.columns(2)
+        with g5:
+            st.caption("Commandes en cours — à préparer")
+            encours = ind.pipeline(orders, items)
+            if sum(p["commandes"] for p in encours) == 0:
+                st.success("Rien en attente : toutes les commandes sont traitées.")
+            else:
+                for etape in encours:
+                    st.markdown(
+                        f'{STATUS_ICON.get(etape["statut"], "•")} **{etape["commandes"]}** '
+                        f'{etape["statut"]}'
+                        + (f' — {money(etape["montant"])}' if etape["montant"] else "")
+                    )
+        with g6:
+            st.caption("Détaillants à relancer (aucune commande depuis 60 jours)")
+            dormants = ind.detaillants_inactifs(orders, retailers_kpi, jours=60)
+            if not dormants:
+                st.success("Tous vos détaillants ont commandé récemment.")
+            else:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Détaillant": d["detaillant"],
+                                "Dernière commande": d["derniere_commande"],
+                                "Jours": d["jours"] if d["jours"] is not None else "—",
+                                "Courriel": d["courriel"] or "—",
+                            }
+                            for d in dormants
+                        ]
+                    ),
+                    hide_index=True, width="stretch",
+                )
 
 
 # ==================================================================
