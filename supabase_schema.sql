@@ -118,6 +118,38 @@ alter table orders add constraint orders_retailer_present
 create index if not exists idx_orders_retailer_id on orders (retailer_id);
 
 -- ------------------------------------------------------------
+-- Date du dernier changement de statut
+--
+-- Le rapport à la comptable raisonne par SEMAINE DE TRAVAIL, pas par date de
+-- commande : ce qui se facture, c'est ce qui a été complété cette semaine,
+-- même si la commande date d'avant. Sans cette colonne, l'information
+-- n'existe nulle part — `created_at` ne dit que la date de réception.
+-- ------------------------------------------------------------
+alter table orders add column if not exists status_changed_at timestamptz;
+update orders set status_changed_at = created_at where status_changed_at is null;
+alter table orders alter column status_changed_at set default now();
+alter table orders alter column status_changed_at set not null;
+
+create index if not exists idx_orders_status_changed_at
+    on orders (status_changed_at desc);
+
+create or replace function touch_order_status() returns trigger
+language plpgsql
+as $$
+begin
+    if new.status is distinct from old.status then
+        new.status_changed_at := now();
+    end if;
+    return new;
+end
+$$;
+
+drop trigger if exists trg_orders_status_changed on orders;
+create trigger trg_orders_status_changed
+    before update on orders
+    for each row execute function touch_order_status();
+
+-- ------------------------------------------------------------
 -- Table : order_items (lignes de commande)
 -- ------------------------------------------------------------
 create table if not exists order_items (

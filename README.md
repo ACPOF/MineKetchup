@@ -205,22 +205,36 @@ Recopiez ces secrets dans **Settings → Secrets and variables → Actions** du
 dépôt : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_HOST`, `SMTP_PORT`,
 `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `ACCOUNTANT_EMAIL`.
 
-Le rapport regroupe les commandes **par commerce, puis par commande**, chacune
-avec son numéro, sa date et son **statut** (nouvelle, en préparation, prête,
-complétée). Un récapitulatif en tête indique combien de commandes sont dans
-chaque statut et pour quel montant — de quoi distinguer d'un coup d'œil ce qui
-est livré de ce qui est encore en atelier. Suivent les coordonnées de
-facturation, les quantités, les prix, les sous-totaux par commande et par
-commerce, et un **CSV** joint (une ligne par article, avec le statut,
-séparateur `;`, encodage lisible par Excel en français).
+Le rapport est construit pour la **facturation**, en deux sections.
 
-Les commandes annulées sont exclues.
+**1. Commandes complétées — à facturer.** Le détail, commerce par commerce et
+commande par commande : articles, quantités, prix, sous-totaux. Un bandeau en
+tête donne le **montant total à facturer**, qui est aussi dans l'objet du
+courriel.
 
-**Une semaine sans commande déclenche quand même un courriel**, qui le dit
-explicitement. C'est volontaire : l'arrivée du message confirme que la prise de
-commande et l'envoi fonctionnent, là où un silence ne permettrait pas de
-distinguer « aucune commande » de « le rapport est cassé ». L'option
-`--taire-si-vide` rétablit le silence si vous changez d'avis.
+**2. Autres commandes ayant évolué.** Un résumé d'une ligne par commande :
+date du changement, commerce, numéro, date de commande, statut et montant.
+Pour information — rien à facturer là.
+
+> **La période se lit sur la date de changement de statut, pas sur la date de
+> commande.** Une commande passée il y a trois semaines et livrée lundi se
+> facture *cette* semaine-ci. C'est la colonne `orders.status_changed_at`,
+> tenue à jour par un déclencheur Postgres ; sans elle, le script se rabat sur
+> la date de commande et le signale dans le courriel.
+
+Les commandes annulées apparaissent dans la section 2, signalées comme telles,
+plutôt que d'être passées sous silence : savoir qu'une commande a été annulée
+dans la semaine évite de la facturer par erreur.
+
+Un **CSV** est joint : une ligne par article, les deux sections réunies et
+distinguées par une colonne `Section`, séparateur `;`, BOM UTF-8 pour qu'Excel
+en français ne massacre pas les accents.
+
+**Une semaine sans mouvement déclenche quand même un courriel**, qui le dit
+explicitement. C'est volontaire : son arrivée confirme que la prise de commande
+et l'envoi fonctionnent, là où un silence ne distinguerait pas « aucune
+commande » de « le rapport est cassé ». L'option `--taire-si-vide` rétablit le
+silence.
 
 Lancement à la main, depuis l'onglet **Actions** du dépôt (bouton *Run
 workflow*, avec dates optionnelles) ou en local :
