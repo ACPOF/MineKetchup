@@ -177,15 +177,24 @@ drop view if exists retailers_public;
 
 -- À la place, une seule fonction, qui répond uniquement à la question
 -- « à quel commerce correspond CE code ? ». Elle ne peut rien lister : sans
--- le bon code, elle ne renvoie rien, et elle n'expose ni téléphone ni courriel.
-create or replace function retailer_by_code(p_code text)
-returns table (id uuid, business_name text)
+-- le bon code, elle ne renvoie rien.
+--
+-- Elle renvoie le nom du contact et le courriel, nécessaires pour envoyer au
+-- détaillant la confirmation de SA commande. Ce sont ses propres coordonnées,
+-- remises à qui présente son propre lien, et elles ne quittent jamais le
+-- serveur Streamlit. Le téléphone, inutile ici, n'est pas exposé.
+--
+-- drop avant create : on ne peut pas changer le type de retour d'une fonction
+-- avec un simple « create or replace ».
+drop function if exists retailer_by_code(text);
+create function retailer_by_code(p_code text)
+returns table (id uuid, business_name text, contact_name text, email text)
 language sql
 security definer
 set search_path = public
 stable
 as $$
-    select r.id, r.business_name
+    select r.id, r.business_name, r.contact_name, r.email
     from retailers r
     where r.is_active = true
       and r.access_code = upper(trim(p_code))

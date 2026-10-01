@@ -29,7 +29,15 @@ MineKetchup/
 │   └── 1_Tableau_de_bord.py      # Admin : commandes + produits + détaillants
 ├── lib/
 │   ├── supabase_client.py        # Connexion à Supabase (clé anon / service_role)
-│   └── branding.py               # Logo, palette, CSS et composants partagés
+│   ├── branding.py               # Logo, palette, CSS et composants partagés
+│   ├── settings.py               # Config : env → st.secrets → secrets.toml
+│   ├── mailer.py                 # Envoi SMTP (jamais bloquant)
+│   ├── emails.py                 # Gabarits des trois courriels
+│   └── format.py                 # Formatage des prix (sans Streamlit)
+├── scripts/
+│   └── rapport_hebdo.py          # Rapport des commandes pour la comptable
+├── .github/workflows/
+│   └── rapport-hebdomadaire.yml  # Déclenche le rapport chaque lundi
 ├── assets/                       # (optionnel) logo officiel — voir assets/README.md
 ├── supabase_schema.sql           # Script SQL à exécuter dans Supabase (idempotent)
 ├── requirements.txt
@@ -74,6 +82,9 @@ Un secret s'ajoute aux 4 existants :
 | `SUPABASE_SERVICE_ROLE_KEY` | oui | tableau de bord uniquement |
 | `ADMIN_PASSWORD` | oui | accès au tableau de bord |
 | `APP_URL` | recommandé | adresse publique de l'app, pour composer les liens de commande personnels affichés dans le tableau de bord |
+| `SMTP_*` | optionnel | envoi des courriels automatiques — voir la section 7 |
+| `ORDER_NOTIFY_EMAIL` | optionnel | qui est alerté à chaque nouvelle commande |
+| `ACCOUNTANT_EMAIL` | optionnel | destinataire du rapport hebdomadaire (secret GitHub, pas Streamlit) |
 
 Sans `APP_URL`, tout fonctionne, mais le tableau de bord n'affiche que la partie
 `?c=XXXXXXXX` du lien, à coller derrière votre adresse.
@@ -157,7 +168,60 @@ Une commande envoyée sans lien personnel est signalée par un avertissement :
 c'est le rappel d'ajouter ce commerce dans l'onglet Détaillants (ou de lui
 renvoyer son lien).
 
-## 7. Déployer
+## 7. Courriels automatiques
+
+Trois courriels, tous optionnels : **sans configuration SMTP, l'app fonctionne
+exactement comme avant et n'envoie rien**.
+
+| Courriel | Quand | Pour qui |
+|---|---|---|
+| Nouvelle commande | à chaque commande reçue | `ORDER_NOTIFY_EMAIL` |
+| Confirmation | à chaque commande, si le commerce a un courriel connu | le détaillant |
+| Rapport des commandes | chaque lundi matin | `ACCOUNTANT_EMAIL` |
+
+### Configurer l'envoi
+
+Ajoutez les valeurs SMTP aux secrets (voir `.streamlit/secrets.toml.example`).
+Avec Gmail ou Microsoft 365, `SMTP_PASSWORD` doit être un **mot de passe
+d'application**, pas le mot de passe du compte.
+
+Le code refuse d'envoyer vos identifiants en clair : si le serveur n'accepte
+pas STARTTLS (port 587) ou le TLS direct (port 465), l'envoi échoue plutôt que
+de les exposer.
+
+> **Un courriel qui ne part pas ne fait jamais perdre une commande.** L'envoi
+> a lieu après l'enregistrement en base, il est encapsulé, et le détaillant
+> voit sa confirmation même si le serveur de courriel est en panne. Les échecs
+> sont écrits dans les journaux de l'app (Streamlit Cloud → *Manage app*).
+
+### Le rapport hebdomadaire
+
+Streamlit Cloud endort l'app quand personne ne l'utilise : elle ne peut donc
+pas se réveiller seule pour envoyer un rapport. C'est **GitHub Actions** qui
+déclenche `scripts/rapport_hebdo.py`, chaque lundi à 11 h UTC (7 h l'été, 6 h
+l'hiver, heure du Québec).
+
+Recopiez ces secrets dans **Settings → Secrets and variables → Actions** du
+dépôt : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `ACCOUNTANT_EMAIL`.
+
+Le rapport regroupe les commandes **par commerce**, avec les coordonnées de
+facturation, les quantités, les prix et les totaux, et joint un **CSV** (une
+ligne par article, séparateur `;`, encodage lisible par Excel en français).
+Les commandes annulées sont exclues. Si aucune commande n'a été reçue, aucun
+courriel n'est envoyé.
+
+Lancement à la main, depuis l'onglet **Actions** du dépôt (bouton *Run
+workflow*, avec dates optionnelles) ou en local :
+
+```bash
+python scripts/rapport_hebdo.py                       # semaine précédente
+python scripts/rapport_hebdo.py --jours 30
+python scripts/rapport_hebdo.py --debut 2026-09-01 --fin 2026-09-30
+python scripts/rapport_hebdo.py --essai               # affiche sans envoyer
+```
+
+## 8. Déployer
 
 **Streamlit Community Cloud** :
 
@@ -177,8 +241,10 @@ renvoyer son lien).
   uniquement :
   - lire les produits **actifs** ;
   - appeler `retailer_by_code` avec **un** code, qui renvoie au plus un
-    commerce (id + nom) — elle ne peut ni lire la table `retailers`, ni
-    l'énumérer. Un code fait 8 caractères sur un alphabet de 32, soit plus de
+    commerce (id, nom, contact et courriel — ses propres coordonnées, remises
+    à qui présente son propre lien, et nécessaires pour lui confirmer sa
+    commande ; elles ne quittent jamais le serveur Streamlit). Elle ne peut ni
+    lire la table `retailers`, ni l'énumérer, et n'expose pas le téléphone. Un code fait 8 caractères sur un alphabet de 32, soit plus de
     1000 milliards de combinaisons : non devinable ;
   - **insérer** des commandes et des lignes de commande — sans jamais les
     relire. Les écritures utilisent `returning="minimal"` et un identifiant de
@@ -216,9 +282,8 @@ rappelle ce qui manque tant que la commande est incomplète.
 
 ## Améliorations possibles
 
-- Notification courriel au producteur à chaque nouvelle commande
-  (webhook Supabase + Resend/SendGrid).
-- Export CSV/Excel des commandes.
+- Export CSV/Excel des commandes depuis le tableau de bord (le rapport
+  hebdomadaire en joint déjà un, par courriel).
 - Historique des commandes par détaillant dans le tableau de bord.
 - Envoi automatique du lien personnel par courriel à l'ajout d'un détaillant.
 - Photos des produits (ajouter les URL dans l'onglet Produits).

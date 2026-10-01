@@ -19,10 +19,12 @@ Aucun compte, aucun mot de passe, aucun paiement.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import streamlit as st
 
+from lib import emails, mailer, settings
 from lib.branding import BRAND, brand_header, footer, inject_theme, money, step
 from lib.supabase_client import get_public_client
 
@@ -81,6 +83,33 @@ def bump(product_id: str, delta: int) -> None:
 # confirmation s'en sert pour reproposer un lien vers la bonne page.
 access_code = (st.query_params.get("c") or "").strip().upper()
 order_page_href = f"/?c={access_code}" if access_code else "/"
+
+
+def envoyer_courriels(commande: dict, items: list[dict], nom_commerce: str) -> None:
+    """Alerte Mine de Ketchup, et confirme au détaillant s'il a un courriel.
+
+    Strictement non bloquant : la commande est déjà enregistrée à ce stade, et
+    un courriel qui ne part pas ne doit ni la perdre, ni inquiéter le
+    détaillant. Les échecs vont dans les journaux de l'app.
+    """
+    try:
+        acheteur = {
+            "business_name": nom_commerce,
+            "contact_name": commande.get("contact_name"),
+            "phone": commande.get("phone"),
+            "email": commande.get("email"),
+            "registered": bool(commande.get("retailer_id")),
+        }
+        destinataires = settings.get_list("ORDER_NOTIFY_EMAIL")
+        if destinataires:
+            sujet, html, texte = emails.nouvelle_commande(commande, items, acheteur)
+            mailer.send(destinataires, sujet, html, texte, reply_to=acheteur.get("email") or "")
+
+        if acheteur.get("email"):
+            sujet, html, texte = emails.confirmation_detaillant(commande, items, nom_commerce)
+            mailer.send(acheteur["email"], sujet, html, texte)
+    except Exception as exc:  # noqa: BLE001 — jamais au détriment de la commande
+        logging.getLogger(__name__).error("Envoi des courriels de commande : %s", exc)
 
 
 # ------------------------------------------------------------------
@@ -343,6 +372,9 @@ if send:
         "id": order_id,
         "retailer_id": selected["id"] if selected else None,
         "retailer_name": selected["business_name"] if selected else fb_business,
+        # Pour un détaillant enregistré, ses coordonnées restent dans la table
+        # `retailers` : on ne les recopie pas dans la commande. Elles servent
+        # seulement à lui envoyer la confirmation (voir envoyer_courriels).
         "contact_name": None if selected else ((fb_contact or "").strip() or None),
         "phone": None if selected else ((fb_phone or "").strip() or None),
         "email": None if selected else ((fb_email or "").strip() or None),
@@ -365,6 +397,14 @@ if send:
             for c in cart
         ]
         client.table("order_items").insert(items_payload, returning="minimal").execute()
+
+        # Les coordonnées d'un détaillant enregistré viennent du lien, pas de
+        # la commande : on les ajoute ici, pour les courriels uniquement.
+        contexte = dict(order_payload)
+        if selected:
+            contexte["contact_name"] = selected.get("contact_name")
+            contexte["email"] = selected.get("email")
+        envoyer_courriels(contexte, items_payload, buyer_label)
 
         st.session_state["mk_receipt"] = {
             "ref": str(order_id).split("-")[0].upper(),

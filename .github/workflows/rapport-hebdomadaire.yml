@@ -1,0 +1,60 @@
+# Rapport des commandes envoyé à la comptable, chaque lundi matin.
+#
+# Streamlit Cloud endort l'app quand personne ne l'utilise : elle ne peut donc
+# pas se réveiller seule pour envoyer un rapport. C'est GitHub qui déclenche.
+#
+# Secrets à créer dans Settings > Secrets and variables > Actions :
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM,
+#   ACCOUNTANT_EMAIL
+name: Rapport hebdomadaire
+
+on:
+  schedule:
+    # 11 h UTC le lundi = 7 h à l'heure avancée de l'Est, 6 h à l'heure normale.
+    # GitHub n'interprète que l'UTC : l'heure locale bouge donc d'une heure
+    # entre l'été et l'hiver. Sans conséquence pour un rapport du matin.
+    - cron: "0 11 * * 1"
+  # Permet aussi de le lancer à la main depuis l'onglet Actions.
+  workflow_dispatch:
+    inputs:
+      debut:
+        description: "Date de début (AAAA-MM-JJ) — vide = semaine précédente"
+        required: false
+      fin:
+        description: "Date de fin incluse (AAAA-MM-JJ)"
+        required: false
+      essai:
+        description: "Afficher le rapport sans l'envoyer"
+        type: boolean
+        default: false
+
+jobs:
+  rapport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dépendances
+        run: pip install --quiet supabase
+
+      - name: Envoyer le rapport
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          ACCOUNTANT_EMAIL: ${{ secrets.ACCOUNTANT_EMAIL }}
+        run: |
+          python scripts/rapport_hebdo.py \
+            ${{ inputs.debut && format('--debut {0}', inputs.debut) || '' }} \
+            ${{ inputs.fin && format('--fin {0}', inputs.fin) || '' }} \
+            ${{ inputs.essai && '--essai' || '' }}
