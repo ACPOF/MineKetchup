@@ -76,9 +76,25 @@ def verifier_configuration(envoi_reel: bool, destinataire_fourni: bool) -> None:
 
 
 def client_admin():
-    return create_client(
-        settings.get("SUPABASE_URL"), settings.get("SUPABASE_SERVICE_ROLE_KEY")
-    )
+    url = settings.get_compact("SUPABASE_URL").rstrip("/")
+    cle = settings.get_compact("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not url.startswith("https://"):
+        raise SystemExit(
+            f"SUPABASE_URL ne ressemble pas à une adresse : « {url[:40]} ». "
+            "Attendu : https://xxxxxxxx.supabase.co (Supabase > Project "
+            "Settings > API > Project URL)."
+        )
+    # Une clé Supabase est un JWT : trois parties séparées par des points.
+    if cle.count(".") != 2:
+        raise SystemExit(
+            f"SUPABASE_SERVICE_ROLE_KEY ne ressemble pas à une clé Supabase "
+            f"({len(cle)} caractères, {cle.count('.') + 1} partie(s) au lieu de 3). "
+            "Recopiez-la avec le bouton de copie de Supabase > Project Settings "
+            "> API > service_role, plutôt qu'en sélectionnant le texte."
+        )
+    logger.info("Supabase : %s (clé de %d caractères)", url, len(cle))
+    return create_client(url, cle)
 
 
 def rassembler(client, debut: date, fin: date) -> list[dict]:
@@ -183,7 +199,18 @@ def main() -> int:
     verifier_configuration(envoi_reel=not args.essai, destinataire_fourni=bool(args.a))
 
     logger.info("Période : %s → %s", debut, fin)
-    par_commerce = rassembler(client_admin(), debut, fin)
+    try:
+        par_commerce = rassembler(client_admin(), debut, fin)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — une trace httpx n'aide personne
+        raise SystemExit(
+            f"Lecture des commandes impossible : {type(exc).__name__} — {exc}\n\n"
+            "Si le message parle de « StreamReset » ou de protocole, l'adresse "
+            "ou la clé Supabase contient probablement un caractère parasite : "
+            "recréez les secrets SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY en "
+            "utilisant les boutons de copie de Supabase."
+        ) from exc
     logger.info(
         "%d commerce(s), %d ligne(s)",
         len(par_commerce),

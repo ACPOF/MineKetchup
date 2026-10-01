@@ -13,6 +13,7 @@ script du rapport hebdomadaire tourne sans lui.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -45,6 +46,24 @@ def get(name: str, default: str = "") -> str:
 
     value = _file_secrets().get(name)
     return str(value).strip() if value else default
+
+
+_ESPACES = re.compile(r"\s+")
+
+
+def get_compact(name: str, default: str = "") -> str:
+    """Valeur dont aucun espace n'est légitime : URL, jeton, clé d'API.
+
+    Copier une clé Supabase en sélectionnant le texte affiché ramène souvent
+    un retour de ligne ou une espace au milieu. L'en-tête HTTP devient alors
+    invalide et le serveur coupe la connexion au niveau du protocole, avec un
+    message qui ne dit rien d'utile (« StreamReset »). On nettoie ici, et on
+    retire au passage les guillemets d'un copier-coller depuis le TOML.
+    """
+    valeur = _ESPACES.sub("", get(name, default))
+    if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
+        valeur = valeur[1:-1]
+    return valeur
 
 
 def get_list(name: str) -> list[str]:
