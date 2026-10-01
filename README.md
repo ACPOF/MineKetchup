@@ -205,11 +205,22 @@ Recopiez ces secrets dans **Settings → Secrets and variables → Actions** du
 dépôt : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_HOST`, `SMTP_PORT`,
 `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `ACCOUNTANT_EMAIL`.
 
-Le rapport regroupe les commandes **par commerce**, avec les coordonnées de
-facturation, les quantités, les prix et les totaux, et joint un **CSV** (une
-ligne par article, séparateur `;`, encodage lisible par Excel en français).
-Les commandes annulées sont exclues. Si aucune commande n'a été reçue, aucun
-courriel n'est envoyé.
+Le rapport regroupe les commandes **par commerce, puis par commande**, chacune
+avec son numéro, sa date et son **statut** (nouvelle, en préparation, prête,
+complétée). Un récapitulatif en tête indique combien de commandes sont dans
+chaque statut et pour quel montant — de quoi distinguer d'un coup d'œil ce qui
+est livré de ce qui est encore en atelier. Suivent les coordonnées de
+facturation, les quantités, les prix, les sous-totaux par commande et par
+commerce, et un **CSV** joint (une ligne par article, avec le statut,
+séparateur `;`, encodage lisible par Excel en français).
+
+Les commandes annulées sont exclues.
+
+**Une semaine sans commande déclenche quand même un courriel**, qui le dit
+explicitement. C'est volontaire : l'arrivée du message confirme que la prise de
+commande et l'envoi fonctionnent, là où un silence ne permettrait pas de
+distinguer « aucune commande » de « le rapport est cassé ». L'option
+`--taire-si-vide` rétablit le silence si vous changez d'avis.
 
 Lancement à la main, depuis l'onglet **Actions** du dépôt (bouton *Run
 workflow*, avec dates optionnelles) ou en local :

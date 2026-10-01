@@ -95,20 +95,35 @@ def rassembler(client, debut: date, fin: date) -> list[dict]:
                 "contact": lie.get("contact_name") or commande.get("contact_name"),
                 "phone": lie.get("phone") or commande.get("phone"),
                 "email": lie.get("email") or commande.get("email"),
-                "commandes": [],
-                "lignes": [],
+                "commandes": [],   # une entrée par commande, avec son statut
+                "lignes": [],      # toutes les lignes à plat, pour le CSV
                 "total": 0.0,
             },
         )
         ref = str(commande["id"]).split("-")[0].upper()
-        groupe["commandes"].append(ref)
         jour = str(commande["created_at"])[:10]
+        statut = commande.get("status", "")
+
+        lignes_commande = []
+        total_commande = 0.0
         for article in par_commande.get(commande["id"], []):
-            groupe["lignes"].append(
-                {**article, "date": jour, "ref": ref, "status": commande.get("status", "")}
-            )
+            ligne = {**article, "date": jour, "ref": ref, "status": statut}
+            lignes_commande.append(ligne)
+            groupe["lignes"].append(ligne)
             if article.get("price") is not None:
-                groupe["total"] += float(article["quantity"]) * float(article["price"])
+                montant = float(article["quantity"]) * float(article["price"])
+                total_commande += montant
+                groupe["total"] += montant
+
+        groupe["commandes"].append(
+            {
+                "ref": ref,
+                "date": jour,
+                "status": statut,
+                "lignes": lignes_commande,
+                "total": total_commande,
+            }
+        )
 
     return sorted(groupes.values(), key=lambda g: g["nom"].lower())
 
@@ -121,9 +136,12 @@ def main() -> int:
     parseur.add_argument("--a", help="Destinataire(s), à la place de ACCOUNTANT_EMAIL.")
     parseur.add_argument("--essai", action="store_true", help="Affiche le rapport sans l'envoyer.")
     parseur.add_argument(
-        "--meme-si-vide",
+        "--taire-si-vide",
         action="store_true",
-        help="Envoie aussi quand aucune commande n'a été reçue (par défaut : on se tait).",
+        help="N'envoie rien si aucune commande n'a été reçue. Par défaut, le "
+        "rapport part quand même : sa seule arrivée confirme que la chaîne "
+        "fonctionne, là où un silence ne distingue pas « pas de commande » "
+        "de « le rapport est cassé ».",
     )
     args = parseur.parse_args()
 
@@ -147,8 +165,8 @@ def main() -> int:
         sum(len(c["lignes"]) for c in par_commerce),
     )
 
-    if not par_commerce and not args.meme_si_vide and not args.essai:
-        logger.info("Aucune commande : rien n'est envoyé (--meme-si-vide pour forcer).")
+    if not par_commerce and args.taire_si_vide and not args.essai:
+        logger.info("Aucune commande, et --taire-si-vide demandé : rien n'est envoyé.")
         return 0
 
     sujet, html, texte = emails.rapport_hebdomadaire(debut, fin, par_commerce)

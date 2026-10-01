@@ -199,19 +199,85 @@ def confirmation_detaillant(commande: dict, items: list[dict], nom_commerce: str
 # ------------------------------------------------------------------
 # 3. Rapport hebdomadaire -> la comptable
 # ------------------------------------------------------------------
+# Couleurs des pastilles de statut. La comptable doit voir d'un coup d'œil ce
+# qui est livré (donc facturable) et ce qui est encore en atelier.
+STATUT_COULEUR = {
+    "nouvelle": ("#B3261E", "#FDECEA"),
+    "en préparation": ("#9A6700", "#FFF4E5"),
+    "prête": ("#1B6E3C", "#E8F5EC"),
+    "complétée": ("#44524A", "#EDF1EE"),
+}
+ORDRE_STATUTS = ["nouvelle", "en préparation", "prête", "complétée"]
+
+
+def _pastille(statut: str) -> str:
+    texte, fond = STATUT_COULEUR.get(statut, (GRIS, "#F0ECE7"))
+    return (
+        f'<span style="display:inline-block;padding:1px 8px;border-radius:999px;'
+        f"background:{fond};color:{texte};font-size:11px;font-weight:700;"
+        f'text-transform:uppercase;letter-spacing:.04em;">{_esc(statut)}</span>'
+    )
+
+
+def _recapitulatif_statuts(par_commerce: list[dict]) -> str:
+    """Tableau de tête : combien de commandes dans chaque statut, et pour combien."""
+    compte: dict[str, list] = {}
+    for commerce in par_commerce:
+        for commande in commerce["commandes"]:
+            entree = compte.setdefault(commande["status"], [0, 0.0])
+            entree[0] += 1
+            entree[1] += commande["total"] or 0.0
+
+    lignes = []
+    for statut in ORDRE_STATUTS + sorted(set(compte) - set(ORDRE_STATUTS)):
+        if statut not in compte:
+            continue
+        nombre, montant = compte[statut]
+        lignes.append(
+            f'<tr><td style="padding:6px 10px 6px 0;">{_pastille(statut)}</td>'
+            f'<td align="right" style="padding:6px 14px 6px 0;font-weight:600;">{nombre}</td>'
+            f'<td align="right" style="padding:6px 0;">{money(montant) or "—"}</td></tr>'
+        )
+    if not lignes:
+        return ""
+    return (
+        f'<div style="background:{PAPIER};border:1px solid {BORDURE};border-radius:10px;'
+        f'padding:12px 16px;margin:14px 0 4px 0;">'
+        f'<div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;'
+        f'color:{GRIS};margin-bottom:4px;">Où en sont les commandes</div>'
+        f'<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;">'
+        f"{''.join(lignes)}</table></div>"
+    )
+
+
 def rapport_hebdomadaire(debut: date, fin: date, par_commerce: list[dict]) -> tuple[str, str, str]:
-    """`par_commerce` : [{nom, contact, phone, email, commandes:[...], total, lignes:[...]}]."""
+    """`par_commerce` : [{nom, contact, phone, email, commandes:[...], lignes, total}].
+
+    Chaque commande porte : ref, date, status, lignes, total.
+    """
     sujet = f"Commandes Mine de Ketchup — {debut.isoformat()} au {fin.isoformat()}"
 
     if not par_commerce:
+        # Un rapport vide part quand même : il confirme que la chaîne
+        # fonctionne. Un silence, lui, ne distingue pas « pas de commande »
+        # de « le rapport est cassé ».
+        sujet = f"Aucune commande — {debut.isoformat()} au {fin.isoformat()}"
         corps = (
-            f'<p style="margin-top:0;">Aucune commande reçue entre le '
+            f'<p style="margin-top:0;">Aucune commande n\'a été reçue entre le '
             f"<strong>{debut.isoformat()}</strong> et le <strong>{fin.isoformat()}</strong>.</p>"
+            f'<p style="color:{GRIS};font-size:14px;">Ce courriel est envoyé même '
+            f"quand la semaine est vide : s'il arrive, c'est que la prise de "
+            f"commande et l'envoi du rapport fonctionnent.</p>"
         )
-        texte = f"Aucune commande entre le {debut} et le {fin}.\n"
+        texte = (
+            f"Aucune commande entre le {debut} et le {fin}.\n\n"
+            "Ce courriel est envoyé même quand la semaine est vide : s'il arrive, "
+            "c'est que la prise de commande et l'envoi du rapport fonctionnent.\n"
+        )
         return sujet, _shell("Rapport hebdomadaire", corps), texte
 
     total_general = sum(c["total"] for c in par_commerce if c["total"] is not None)
+    nb_commandes = sum(len(c["commandes"]) for c in par_commerce)
     prix_manquants = any(
         ligne.get("price") is None for c in par_commerce for ligne in c["lignes"]
     )
@@ -221,19 +287,33 @@ def rapport_hebdomadaire(debut: date, fin: date, par_commerce: list[dict]) -> tu
         coordonnees = " · ".join(
             v for v in (commerce.get("contact"), commerce.get("phone"), commerce.get("email")) if v
         )
+        commandes_html = []
+        for commande in commerce["commandes"]:
+            commandes_html.append(
+                f'<div style="margin-top:12px;">'
+                f'<div style="font-size:13px;color:{GRIS};">'
+                f'<strong style="color:{ENCRE};">n° {_esc(commande["ref"])}</strong> · '
+                f'{_esc(commande["date"])} &nbsp;{_pastille(commande["status"])}</div>'
+                + _table_lignes(commande["lignes"])
+                + (
+                    f'<div align="right" style="font-size:13px;color:{GRIS};">'
+                    f'Total de la commande : {money(commande["total"]) or "—"}</div>'
+                    if len(commerce["commandes"]) > 1
+                    else ""
+                )
+                + "</div>"
+            )
         blocs.append(
-            f'<div style="margin:22px 0 0 0;">'
+            f'<div style="margin:26px 0 0 0;padding-top:16px;border-top:1px solid {BORDURE};">'
             f'<div style="font-size:16px;font-weight:700;">{_esc(commerce["nom"])}</div>'
             + (
                 f'<div style="font-size:13px;color:{GRIS};margin-top:2px;">{_esc(coordonnees)}</div>'
                 if coordonnees
                 else ""
             )
-            + f'<div style="font-size:13px;color:{GRIS};margin-top:2px;">'
-            f'{len(commerce["commandes"])} commande(s) : {_esc(", ".join(commerce["commandes"]))}</div>'
-            + _table_lignes(commerce["lignes"])
-            + f'<div align="right" style="font-weight:700;font-size:15px;">'
-            f'Sous-total : {money(commerce["total"]) or "—"}</div></div>'
+            + "".join(commandes_html)
+            + f'<div align="right" style="font-weight:700;font-size:15px;margin-top:8px;">'
+            f'Sous-total {_esc(commerce["nom"])} : {money(commerce["total"]) or "—"}</div></div>'
         )
 
     note = ""
@@ -246,26 +326,35 @@ def rapport_hebdomadaire(debut: date, fin: date, par_commerce: list[dict]) -> tu
         )
 
     corps = (
-        f'<p style="margin-top:0;">Commandes reçues du <strong>{debut.isoformat()}</strong> '
-        f"au <strong>{fin.isoformat()}</strong> (commandes annulées exclues).</p>"
+        f'<p style="margin-top:0;">{nb_commandes} commande(s) reçue(s) du '
+        f"<strong>{debut.isoformat()}</strong> au <strong>{fin.isoformat()}</strong>, "
+        f"de {len(par_commerce)} commerce(s). Les commandes annulées sont exclues.</p>"
+        + _recapitulatif_statuts(par_commerce)
         + "".join(blocs)
         + f'<div align="right" style="margin-top:22px;padding-top:12px;'
         f'border-top:2px solid {ENCRE};font-size:17px;font-weight:700;">'
         f'Total de la période : {money(total_general) or "—"}</div>'
         + note
         + f'<p style="font-size:13px;color:{GRIS};margin-top:18px;">'
-        f"Le détail ligne par ligne est joint en CSV, prêt à importer.</p>"
+        f"Le détail ligne par ligne, avec le statut de chaque commande, est joint "
+        f"en CSV, prêt à importer.</p>"
     )
 
     texte_blocs = []
     for commerce in par_commerce:
+        details = []
+        for commande in commerce["commandes"]:
+            details.append(
+                f"  n° {commande['ref']} — {commande['date']} — {commande['status']}\n"
+                + _lignes_texte(commande["lignes"])
+            )
         texte_blocs.append(
-            f"{commerce['nom']} — {len(commerce['commandes'])} commande(s)\n"
-            + _lignes_texte(commerce["lignes"])
+            f"{commerce['nom']}\n"
+            + "\n".join(details)
             + f"\n  Sous-total : {money(commerce['total']) or '—'}\n"
         )
     texte = (
-        f"Commandes du {debut} au {fin}\n\n"
+        f"Commandes du {debut} au {fin} — {nb_commandes} commande(s)\n\n"
         + "\n".join(texte_blocs)
         + f"\nTotal de la période : {money(total_general) or '—'}\n"
     )
