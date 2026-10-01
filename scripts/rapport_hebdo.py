@@ -97,20 +97,48 @@ def client_admin():
     return create_client(url, cle)
 
 
-def rassembler(client, debut: date, fin: date) -> list[dict]:
-    """Commandes de la période, regroupées par commerce."""
+def _commandes_de_la_periode(client, debut: date, fin: date) -> tuple[list[dict], bool]:
+    """Commandes dont le STATUT a bougé pendant la période.
+
+    C'est la bonne borne pour la comptabilité : une commande passée il y a
+    trois semaines et livrée lundi se facture cette semaine-ci. Repli sur
+    `created_at` si la colonne n'existe pas encore — le script reste
+    utilisable tant que le schéma n'a pas été réexécuté.
+    """
     depuis, jusqua = bornes_utc(debut, fin)
-    commandes = (
-        client.table("orders")
-        .select("*, retailers(business_name, contact_name, phone, email)")
-        .gte("created_at", depuis)
-        .lt("created_at", jusqua)
-        .order("created_at")
-        .execute()
-    ).data or []
-    commandes = [c for c in commandes if c.get("status") not in EXCLUS]
+    select = "*, retailers(business_name, contact_name, phone, email)"
+    try:
+        res = (
+            client.table("orders").select(select)
+            .gte("status_changed_at", depuis).lt("status_changed_at", jusqua)
+            .order("status_changed_at").execute()
+        )
+        return res.data or [], True
+    except Exception as exc:  # noqa: BLE001 — colonne absente : schéma pas à jour
+        logger.warning(
+            "Colonne status_changed_at introuvable (%s). Repli sur la date de "
+            "commande : réexécutez supabase_schema.sql pour le suivi des statuts.",
+            type(exc).__name__,
+        )
+        res = (
+            client.table("orders").select(select)
+            .gte("created_at", depuis).lt("created_at", jusqua)
+            .order("created_at").execute()
+        )
+        return res.data or [], False
+
+
+def rassembler(client, debut: date, fin: date) -> dict:
+    """Deux sections : le détail à facturer, puis le reste en résumé.
+
+    - « facturables » : commandes passées à « complétée » pendant la période,
+      détaillées par commerce et par commande ;
+    - « mouvements » : toutes les autres commandes dont le statut a bougé,
+      en une ligne chacune — de quoi savoir ce qui s'en vient.
+    """
+    commandes, suivi_statuts = _commandes_de_la_periode(client, debut, fin)
     if not commandes:
-        return []
+        return {"facturables": [], "mouvements": [], "suivi_statuts": suivi_statuts}
 
     ids = {c["id"] for c in commandes}
     articles = (client.table("order_items").select("*").execute()).data or []
@@ -120,47 +148,56 @@ def rassembler(client, debut: date, fin: date) -> list[dict]:
             par_commande.setdefault(article["order_id"], []).append(article)
 
     groupes: OrderedDict[str, dict] = OrderedDict()
+    mouvements: list[dict] = []
+
     for commande in commandes:
         lie = commande.get("retailers") or {}
         nom = lie.get("business_name") or commande.get("retailer_name") or "Commerce inconnu"
-        groupe = groupes.setdefault(
-            nom,
-            {
-                "nom": nom,
-                "contact": lie.get("contact_name") or commande.get("contact_name"),
-                "phone": lie.get("phone") or commande.get("phone"),
-                "email": lie.get("email") or commande.get("email"),
-                "commandes": [],   # une entrée par commande, avec son statut
-                "lignes": [],      # toutes les lignes à plat, pour le CSV
-                "total": 0.0,
-            },
-        )
         ref = str(commande["id"]).split("-")[0].upper()
         jour = str(commande["created_at"])[:10]
+        bouge_le = str(commande.get("status_changed_at") or commande["created_at"])[:10]
         statut = commande.get("status", "")
 
-        lignes_commande = []
-        total_commande = 0.0
-        for article in par_commande.get(commande["id"], []):
-            ligne = {**article, "date": jour, "ref": ref, "status": statut}
-            lignes_commande.append(ligne)
-            groupe["lignes"].append(ligne)
-            if article.get("price") is not None:
-                montant = float(article["quantity"]) * float(article["price"])
-                total_commande += montant
-                groupe["total"] += montant
-
-        groupe["commandes"].append(
-            {
-                "ref": ref,
-                "date": jour,
-                "status": statut,
-                "lignes": lignes_commande,
-                "total": total_commande,
-            }
+        lignes = [
+            {**article, "date": jour, "ref": ref, "status": statut, "change_le": bouge_le}
+            for article in par_commande.get(commande["id"], [])
+        ]
+        total = sum(
+            float(a["quantity"]) * float(a["price"])
+            for a in lignes
+            if a.get("price") is not None
         )
 
-    return sorted(groupes.values(), key=lambda g: g["nom"].lower())
+        if statut == "complétée":
+            groupe = groupes.setdefault(
+                nom,
+                {
+                    "nom": nom,
+                    "contact": lie.get("contact_name") or commande.get("contact_name"),
+                    "phone": lie.get("phone") or commande.get("phone"),
+                    "email": lie.get("email") or commande.get("email"),
+                    "commandes": [],
+                    "lignes": [],
+                    "total": 0.0,
+                },
+            )
+            groupe["commandes"].append(
+                {"ref": ref, "date": jour, "change_le": bouge_le,
+                 "status": statut, "lignes": lignes, "total": total}
+            )
+            groupe["lignes"] += lignes
+            groupe["total"] += total
+        else:
+            mouvements.append(
+                {"nom": nom, "ref": ref, "date": jour, "change_le": bouge_le,
+                 "status": statut, "total": total, "lignes": lignes}
+            )
+
+    return {
+        "facturables": sorted(groupes.values(), key=lambda g: g["nom"].lower()),
+        "mouvements": sorted(mouvements, key=lambda m: (m["change_le"], m["nom"].lower())),
+        "suivi_statuts": suivi_statuts,
+    }
 
 
 def main() -> int:
@@ -200,7 +237,7 @@ def main() -> int:
 
     logger.info("Période : %s → %s", debut, fin)
     try:
-        par_commerce = rassembler(client_admin(), debut, fin)
+        rapport = rassembler(client_admin(), debut, fin)
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001 — une trace httpx n'aide personne
@@ -211,21 +248,21 @@ def main() -> int:
             "recréez les secrets SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY en "
             "utilisant les boutons de copie de Supabase."
         ) from exc
+    vide = not rapport["facturables"] and not rapport["mouvements"]
     logger.info(
-        "%d commerce(s), %d ligne(s)",
-        len(par_commerce),
-        sum(len(c["lignes"]) for c in par_commerce),
+        "À facturer : %d commerce(s) ; autres mouvements : %d commande(s)",
+        len(rapport["facturables"]),
+        len(rapport["mouvements"]),
     )
 
-    if not par_commerce and args.taire_si_vide and not args.essai:
+    if vide and args.taire_si_vide and not args.essai:
         logger.info("Aucune commande, et --taire-si-vide demandé : rien n'est envoyé.")
         return 0
 
-    sujet, html, texte = emails.rapport_hebdomadaire(debut, fin, par_commerce)
+    sujet, html, texte = emails.rapport_hebdomadaire(debut, fin, rapport)
     pieces = (
-        [(f"commandes-{debut}-au-{fin}.csv", emails.rapport_csv(par_commerce), "text/csv")]
-        if par_commerce
-        else None
+        None if vide
+        else [(f"commandes-{debut}-au-{fin}.csv", emails.rapport_csv(rapport), "text/csv")]
     )
 
     if args.essai:

@@ -206,8 +206,8 @@ STATUT_COULEUR = {
     "en préparation": ("#9A6700", "#FFF4E5"),
     "prête": ("#1B6E3C", "#E8F5EC"),
     "complétée": ("#44524A", "#EDF1EE"),
+    "annulée": ("#8A8178", "#F1EEEA"),
 }
-ORDRE_STATUTS = ["nouvelle", "en préparation", "prête", "complétée"]
 
 
 def _pastille(statut: str) -> str:
@@ -219,173 +219,283 @@ def _pastille(statut: str) -> str:
     )
 
 
-def _recapitulatif_statuts(par_commerce: list[dict]) -> str:
-    """Tableau de tête : combien de commandes dans chaque statut, et pour combien."""
-    compte: dict[str, list] = {}
-    for commerce in par_commerce:
-        for commande in commerce["commandes"]:
-            entree = compte.setdefault(commande["status"], [0, 0.0])
-            entree[0] += 1
-            entree[1] += commande["total"] or 0.0
-
-    lignes = []
-    for statut in ORDRE_STATUTS + sorted(set(compte) - set(ORDRE_STATUTS)):
-        if statut not in compte:
-            continue
-        nombre, montant = compte[statut]
-        lignes.append(
-            f'<tr><td style="padding:6px 10px 6px 0;">{_pastille(statut)}</td>'
-            f'<td align="right" style="padding:6px 14px 6px 0;font-weight:600;">{nombre}</td>'
-            f'<td align="right" style="padding:6px 0;">{money(montant) or "—"}</td></tr>'
-        )
-    if not lignes:
-        return ""
+def _bandeau_total(montant: float, nb_commandes: int, nb_commerces: int) -> str:
+    """Le chiffre que la comptable cherche en premier, en haut et en gros."""
     return (
-        f'<div style="background:{PAPIER};border:1px solid {BORDURE};border-radius:10px;'
-        f'padding:12px 16px;margin:14px 0 4px 0;">'
-        f'<div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;'
-        f'color:{GRIS};margin-bottom:4px;">Où en sont les commandes</div>'
-        f'<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;">'
-        f"{''.join(lignes)}</table></div>"
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="background:{ENCRE};border-radius:12px;margin:4px 0 18px 0;">'
+        f'<tr><td style="padding:18px 22px;">'
+        f'<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;'
+        f'color:#C9BFB4;">À facturer cette semaine</div>'
+        f'<div style="font-size:30px;font-weight:700;color:#FFFFFF;margin-top:4px;">'
+        f'{money(montant) or "—"}</div>'
+        f'<div style="font-size:13px;color:#C9BFB4;margin-top:2px;">'
+        f'{nb_commandes} commande(s) complétée(s) · {nb_commerces} commerce(s)</div>'
+        f"</td></tr></table>"
     )
 
 
-def rapport_hebdomadaire(debut: date, fin: date, par_commerce: list[dict]) -> tuple[str, str, str]:
-    """`par_commerce` : [{nom, contact, phone, email, commandes:[...], lignes, total}].
+def _titre_section(numero: str, titre: str, sous_titre: str) -> str:
+    return (
+        f'<div style="margin:26px 0 2px 0;padding-bottom:8px;'
+        f'border-bottom:2px solid {ENCRE};">'
+        f'<span style="display:inline-block;width:22px;height:22px;border-radius:50%;'
+        f'background:{ROUGE};color:#fff;font-size:12px;font-weight:700;text-align:center;'
+        f'line-height:22px;margin-right:8px;">{numero}</span>'
+        f'<span style="font-size:16px;font-weight:700;">{_esc(titre)}</span>'
+        f'<div style="font-size:13px;color:{GRIS};margin-top:4px;">{_esc(sous_titre)}</div>'
+        f"</div>"
+    )
 
-    Chaque commande porte : ref, date, status, lignes, total.
+
+def _tableau_mouvements(mouvements: list[dict]) -> str:
+    """Résumé : une ligne par commande qui a changé de statut, sans le détail."""
+    entetes = ["Changée le", "Commerce", "N°", "Commandée le", "Statut", "Montant"]
+    th = "".join(
+        f'<th align="{"right" if h == "Montant" else "left"}" '
+        f'style="padding:7px 8px;border-bottom:2px solid {BORDURE};font-size:11px;'
+        f'text-transform:uppercase;letter-spacing:.05em;color:{GRIS};">{h}</th>'
+        for h in entetes
+    )
+    lignes = []
+    for m in mouvements:
+        lignes.append(
+            "<tr>"
+            f'<td style="padding:8px;border-bottom:1px solid {BORDURE};white-space:nowrap;">'
+            f'{_esc(m["change_le"])}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid {BORDURE};font-weight:600;">'
+            f'{_esc(m["nom"])}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid {BORDURE};'
+            f'font-family:ui-monospace,Menlo,monospace;font-size:13px;">{_esc(m["ref"])}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid {BORDURE};color:{GRIS};'
+            f'white-space:nowrap;">{_esc(m["date"])}</td>'
+            f'<td style="padding:8px;border-bottom:1px solid {BORDURE};">'
+            f'{_pastille(m["status"])}</td>'
+            f'<td align="right" style="padding:8px;border-bottom:1px solid {BORDURE};'
+            f'color:{GRIS};">{money(m["total"]) or "—"}</td>'
+            "</tr>"
+        )
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;font-size:14px;margin:12px 0;">'
+        f"<tr>{th}</tr>{''.join(lignes)}</table>"
+    )
+
+
+def rapport_hebdomadaire(debut: date, fin: date, rapport: dict) -> tuple[str, str, str]:
+    """Rapport en deux sections : le détail à facturer, puis ce qui a bougé.
+
+    `rapport` : {"facturables": [...], "mouvements": [...], "suivi_statuts": bool}.
+    La période se lit sur la DATE DE CHANGEMENT DE STATUT, pas sur la date de
+    commande : une commande d'il y a trois semaines livrée lundi se facture
+    cette semaine-ci.
     """
-    sujet = f"Commandes Mine de Ketchup — {debut.isoformat()} au {fin.isoformat()}"
+    facturables = rapport.get("facturables") or []
+    mouvements = rapport.get("mouvements") or []
+    periode = f"{debut.isoformat()} au {fin.isoformat()}"
 
-    if not par_commerce:
-        # Un rapport vide part quand même : il confirme que la chaîne
-        # fonctionne. Un silence, lui, ne distingue pas « pas de commande »
-        # de « le rapport est cassé ».
-        sujet = f"Aucune commande — {debut.isoformat()} au {fin.isoformat()}"
+    if not facturables and not mouvements:
+        sujet = f"Aucun mouvement — {periode}"
         corps = (
-            f'<p style="margin-top:0;">Aucune commande n\'a été reçue entre le '
-            f"<strong>{debut.isoformat()}</strong> et le <strong>{fin.isoformat()}</strong>.</p>"
+            f'<p style="margin-top:0;">Aucune commande n\'a été reçue ni modifiée '
+            f"entre le <strong>{debut.isoformat()}</strong> et le "
+            f"<strong>{fin.isoformat()}</strong>.</p>"
             f'<p style="color:{GRIS};font-size:14px;">Ce courriel est envoyé même '
             f"quand la semaine est vide : s'il arrive, c'est que la prise de "
             f"commande et l'envoi du rapport fonctionnent.</p>"
         )
         texte = (
-            f"Aucune commande entre le {debut} et le {fin}.\n\n"
+            f"Aucune commande reçue ni modifiée entre le {debut} et le {fin}.\n\n"
             "Ce courriel est envoyé même quand la semaine est vide : s'il arrive, "
             "c'est que la prise de commande et l'envoi du rapport fonctionnent.\n"
         )
         return sujet, _shell("Rapport hebdomadaire", corps), texte
 
-    total_general = sum(c["total"] for c in par_commerce if c["total"] is not None)
-    nb_commandes = sum(len(c["commandes"]) for c in par_commerce)
-    prix_manquants = any(
-        ligne.get("price") is None for c in par_commerce for ligne in c["lignes"]
+    total_facturable = sum(c["total"] for c in facturables)
+    nb_completees = sum(len(c["commandes"]) for c in facturables)
+    sujet = (
+        f"À facturer {money(total_facturable) or '—'} — Mine de Ketchup, {periode}"
+        if facturables
+        else f"Aucune commande à facturer — Mine de Ketchup, {periode}"
     )
 
-    blocs = []
-    for commerce in par_commerce:
-        coordonnees = " · ".join(
-            v for v in (commerce.get("contact"), commerce.get("phone"), commerce.get("email")) if v
-        )
-        commandes_html = []
-        for commande in commerce["commandes"]:
-            commandes_html.append(
-                f'<div style="margin-top:12px;">'
-                f'<div style="font-size:13px;color:{GRIS};">'
-                f'<strong style="color:{ENCRE};">n° {_esc(commande["ref"])}</strong> · '
-                f'{_esc(commande["date"])} &nbsp;{_pastille(commande["status"])}</div>'
-                + _table_lignes(commande["lignes"])
+    prix_manquants = any(
+        ligne.get("price") is None
+        for c in facturables
+        for ligne in c["lignes"]
+    )
+
+    # --- Section 1 : le détail, commerce par commerce
+    if facturables:
+        blocs = []
+        for commerce in facturables:
+            coordonnees = " · ".join(
+                v for v in (commerce.get("contact"), commerce.get("phone"), commerce.get("email")) if v
+            )
+            commandes_html = []
+            for commande in commerce["commandes"]:
+                commandes_html.append(
+                    f'<div style="margin-top:12px;">'
+                    f'<div style="font-size:13px;color:{GRIS};">'
+                    f'<strong style="color:{ENCRE};">n° {_esc(commande["ref"])}</strong> · '
+                    f'commandée le {_esc(commande["date"])} · '
+                    f'complétée le <strong style="color:{ENCRE};">{_esc(commande["change_le"])}</strong></div>'
+                    + _table_lignes(commande["lignes"])
+                    + (
+                        f'<div align="right" style="font-size:13px;color:{GRIS};">'
+                        f'Total de la commande : {money(commande["total"]) or "—"}</div>'
+                        if len(commerce["commandes"]) > 1
+                        else ""
+                    )
+                    + "</div>"
+                )
+            blocs.append(
+                f'<div style="margin:22px 0 0 0;padding-top:14px;border-top:1px solid {BORDURE};">'
+                f'<div style="font-size:16px;font-weight:700;">{_esc(commerce["nom"])}</div>'
                 + (
-                    f'<div align="right" style="font-size:13px;color:{GRIS};">'
-                    f'Total de la commande : {money(commande["total"]) or "—"}</div>'
-                    if len(commerce["commandes"]) > 1
+                    f'<div style="font-size:13px;color:{GRIS};margin-top:2px;">{_esc(coordonnees)}</div>'
+                    if coordonnees
                     else ""
                 )
-                + "</div>"
+                + "".join(commandes_html)
+                + f'<div align="right" style="font-weight:700;font-size:15px;margin-top:10px;'
+                f'padding-top:8px;border-top:1px solid {BORDURE};">'
+                f'À facturer à {_esc(commerce["nom"])} : {money(commerce["total"]) or "—"}</div></div>'
             )
-        blocs.append(
-            f'<div style="margin:26px 0 0 0;padding-top:16px;border-top:1px solid {BORDURE};">'
-            f'<div style="font-size:16px;font-weight:700;">{_esc(commerce["nom"])}</div>'
-            + (
-                f'<div style="font-size:13px;color:{GRIS};margin-top:2px;">{_esc(coordonnees)}</div>'
-                if coordonnees
-                else ""
+        section1 = (
+            _titre_section(
+                "1", "Commandes complétées — à facturer",
+                "Livrées pendant la période, détaillées par commerce. "
+                "La date de commande peut être antérieure.",
             )
-            + "".join(commandes_html)
-            + f'<div align="right" style="font-weight:700;font-size:15px;margin-top:8px;">'
-            f'Sous-total {_esc(commerce["nom"])} : {money(commerce["total"]) or "—"}</div></div>'
+            + "".join(blocs)
+            + f'<div align="right" style="margin-top:18px;padding-top:10px;'
+            f'border-top:2px solid {ENCRE};font-size:17px;font-weight:700;">'
+            f'Total à facturer : {money(total_facturable) or "—"}</div>'
+        )
+    else:
+        section1 = _titre_section(
+            "1", "Commandes complétées — à facturer",
+            "Aucune commande n'est passée à « complétée » pendant la période.",
         )
 
-    note = ""
+    # --- Section 2 : le reste, en résumé
+    if mouvements:
+        section2 = (
+            _titre_section(
+                "2", "Autres commandes ayant évolué",
+                "Reçues ou passées à un autre statut pendant la période. "
+                "Pour information : rien à facturer ici.",
+            )
+            + _tableau_mouvements(mouvements)
+        )
+    else:
+        section2 = _titre_section(
+            "2", "Autres commandes ayant évolué",
+            "Aucune autre commande n'a changé de statut pendant la période.",
+        )
+
+    notes = ""
     if prix_manquants:
-        note = (
+        notes += (
             f'<div style="background:#FFF4E5;border-left:3px solid #D08700;padding:10px 12px;'
             f'border-radius:6px;margin-top:18px;font-size:13px;">'
             f"Certains produits n'ont pas de prix dans le catalogue : leurs lignes "
             f"apparaissent sans montant et ne sont pas comptées dans les totaux.</div>"
         )
+    if not rapport.get("suivi_statuts", True):
+        notes += (
+            f'<div style="background:#FFF4E5;border-left:3px solid #D08700;padding:10px 12px;'
+            f'border-radius:6px;margin-top:10px;font-size:13px;">'
+            f"Le suivi des changements de statut n'est pas encore activé dans la "
+            f"base : la période se lit ici sur la date de commande. Réexécutez "
+            f"<code>supabase_schema.sql</code> dans Supabase.</div>"
+        )
 
     corps = (
-        f'<p style="margin-top:0;">{nb_commandes} commande(s) reçue(s) du '
-        f"<strong>{debut.isoformat()}</strong> au <strong>{fin.isoformat()}</strong>, "
-        f"de {len(par_commerce)} commerce(s). Les commandes annulées sont exclues.</p>"
-        + _recapitulatif_statuts(par_commerce)
-        + "".join(blocs)
-        + f'<div align="right" style="margin-top:22px;padding-top:12px;'
-        f'border-top:2px solid {ENCRE};font-size:17px;font-weight:700;">'
-        f'Total de la période : {money(total_general) or "—"}</div>'
-        + note
-        + f'<p style="font-size:13px;color:{GRIS};margin-top:18px;">'
-        f"Le détail ligne par ligne, avec le statut de chaque commande, est joint "
-        f"en CSV, prêt à importer.</p>"
+        f'<p style="margin-top:0;color:{GRIS};font-size:14px;">Semaine du '
+        f"<strong style=\"color:{ENCRE};\">{debut.isoformat()}</strong> au "
+        f"<strong style=\"color:{ENCRE};\">{fin.isoformat()}</strong></p>"
+        + _bandeau_total(total_facturable, nb_completees, len(facturables))
+        + section1
+        + section2
+        + notes
+        + f'<p style="font-size:13px;color:{GRIS};margin-top:20px;">'
+        f"Le détail ligne par ligne des deux sections est joint en CSV.</p>"
     )
 
-    texte_blocs = []
-    for commerce in par_commerce:
-        details = []
-        for commande in commerce["commandes"]:
-            details.append(
-                f"  n° {commande['ref']} — {commande['date']} — {commande['status']}\n"
-                + _lignes_texte(commande["lignes"])
-            )
-        texte_blocs.append(
-            f"{commerce['nom']}\n"
-            + "\n".join(details)
-            + f"\n  Sous-total : {money(commerce['total']) or '—'}\n"
-        )
-    texte = (
-        f"Commandes du {debut} au {fin} — {nb_commandes} commande(s)\n\n"
-        + "\n".join(texte_blocs)
-        + f"\nTotal de la période : {money(total_general) or '—'}\n"
+    # --- Version texte
+    lignes_txt = [f"RAPPORT MINE DE KETCHUP — {periode}", ""]
+    lignes_txt.append(
+        f"À FACTURER : {money(total_facturable) or '—'} "
+        f"({nb_completees} commande(s) complétée(s), {len(facturables)} commerce(s))"
     )
+    lignes_txt.append("")
+    lignes_txt.append("1. COMMANDES COMPLÉTÉES — À FACTURER")
+    if facturables:
+        for commerce in facturables:
+            lignes_txt.append(f"\n  {commerce['nom']}")
+            for commande in commerce["commandes"]:
+                lignes_txt.append(
+                    f"    n° {commande['ref']} — commandée le {commande['date']}, "
+                    f"complétée le {commande['change_le']}"
+                )
+                lignes_txt.append(_lignes_texte(commande["lignes"]))
+            lignes_txt.append(f"    À facturer : {money(commerce['total']) or '—'}")
+    else:
+        lignes_txt.append("  Aucune.")
+    lignes_txt.append("")
+    lignes_txt.append("2. AUTRES COMMANDES AYANT ÉVOLUÉ")
+    if mouvements:
+        for m in mouvements:
+            lignes_txt.append(
+                f"  {m['change_le']} — {m['nom']} — n° {m['ref']} — "
+                f"{m['status']} — {money(m['total']) or '—'}"
+            )
+    else:
+        lignes_txt.append("  Aucune.")
+    texte = "\n".join(lignes_txt) + "\n"
+
     return sujet, _shell("Rapport hebdomadaire", corps), texte
 
 
-def rapport_csv(par_commerce: list[dict]) -> bytes:
-    """Une ligne par article commandé — format d'import pour la comptabilité."""
+def rapport_csv(rapport: dict) -> bytes:
+    """Une ligne par article, les deux sections réunies et distinguées."""
     tampon = io.StringIO()
     writer = csv.writer(tampon, delimiter=";")
     writer.writerow(
-        ["Date", "Commerce", "Contact", "Courriel", "Téléphone", "Commande",
-         "Statut", "Produit", "Format", "Quantité", "Prix unitaire", "Total ligne"]
+        ["Section", "Changée le", "Commandée le", "Commerce", "Contact", "Courriel",
+         "Téléphone", "Commande", "Statut", "Produit", "Format", "Quantité",
+         "Prix unitaire", "Total ligne"]
     )
-    for commerce in par_commerce:
+
+    def ecrire(section, ligne, commerce_nom, contact="", courriel="", tel=""):
+        prix = ligne.get("price")
+        quantite = float(ligne["quantity"])
+        writer.writerow([
+            section,
+            ligne.get("change_le", ""),
+            ligne.get("date", ""),
+            commerce_nom,
+            contact or "",
+            courriel or "",
+            tel or "",
+            ligne.get("ref", ""),
+            ligne.get("status", ""),
+            ligne["product_name"],
+            ligne.get("unit") or "",
+            f"{quantite:g}",
+            f"{float(prix):.2f}".replace(".", ",") if prix is not None else "",
+            f"{quantite * float(prix):.2f}".replace(".", ",") if prix is not None else "",
+        ])
+
+    for commerce in rapport.get("facturables") or []:
         for ligne in commerce["lignes"]:
-            prix = ligne.get("price")
-            quantite = float(ligne["quantity"])
-            writer.writerow([
-                ligne.get("date", ""),
-                commerce["nom"],
-                commerce.get("contact") or "",
-                commerce.get("email") or "",
-                commerce.get("phone") or "",
-                ligne.get("ref", ""),
-                ligne.get("status", ""),
-                ligne["product_name"],
-                ligne.get("unit") or "",
-                f"{quantite:g}",
-                f"{float(prix):.2f}".replace(".", ",") if prix is not None else "",
-                f"{quantite * float(prix):.2f}".replace(".", ",") if prix is not None else "",
-            ])
+            ecrire("À facturer", ligne, commerce["nom"], commerce.get("contact"),
+                   commerce.get("email"), commerce.get("phone"))
+    for mouvement in rapport.get("mouvements") or []:
+        for ligne in mouvement["lignes"]:
+            ecrire("Autre mouvement", ligne, mouvement["nom"])
+
     # BOM UTF-8 : sans lui, Excel en français massacre les accents.
     return tampon.getvalue().encode("utf-8-sig")
