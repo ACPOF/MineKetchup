@@ -13,6 +13,8 @@ from pathlib import Path
 
 import streamlit as st
 
+from lib.format import money  # ré-exporté : les pages l'importent d'ici
+
 BRAND = {
     "name": "Mine de Ketchup",
     "tagline": "Ketchups & salsas artisanaux — Padoue, Bas-Saint-Laurent",
@@ -392,16 +394,6 @@ def step(number: int | str, title: str, hint: str | None = None) -> None:
     )
     if hint:
         st.markdown(f'<div class="mk-step-hint">{hint}</div>', unsafe_allow_html=True)
-
-
-def money(value) -> str:
-    """Formate un prix à la québécoise : 7,25 $. Retourne '' si pas de prix."""
-    if value in (None, ""):
-        return ""
-    try:
-        return f"{float(value):,.2f}".replace(",", " ").replace(".", ",") + " $"
-    except (TypeError, ValueError):
-        return ""
 
 
 def footer() -> None:
