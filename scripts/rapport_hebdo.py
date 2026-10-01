@@ -51,15 +51,34 @@ def bornes_utc(debut: date, fin: date) -> tuple[str, str]:
     return depuis.isoformat(), jusqua.isoformat()
 
 
-def client_admin():
-    url = settings.get("SUPABASE_URL")
-    key = settings.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
+def verifier_configuration(envoi_reel: bool, destinataire_fourni: bool) -> None:
+    """Nomme d'un coup tout ce qui manque, plutôt qu'une panne à la fois.
+
+    Une configuration se met en place en une fois : autant lister les huit
+    secrets manquants ensemble que les découvrir un par un, à chaque relance.
+    """
+    requis = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+    if envoi_reel:
+        requis += ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"]
+        if not destinataire_fourni:
+            requis.append("ACCOUNTANT_EMAIL")
+
+    manquants = [nom for nom in requis if not settings.get(nom)]
+    if manquants:
         raise SystemExit(
-            "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis "
-            "(variables d'environnement, ou .streamlit/secrets.toml en local)."
+            "Configuration incomplète — ces valeurs sont vides : "
+            + ", ".join(manquants)
+            + ".\n\nDans GitHub Actions, ce sont des secrets de dépôt : "
+            "Settings > Secrets and variables > Actions > New repository secret. "
+            "Un nom, une valeur, sans guillemets. En local, elles peuvent aussi "
+            "venir de .streamlit/secrets.toml."
         )
-    return create_client(url, key)
+
+
+def client_admin():
+    return create_client(
+        settings.get("SUPABASE_URL"), settings.get("SUPABASE_SERVICE_ROLE_KEY")
+    )
 
 
 def rassembler(client, debut: date, fin: date) -> list[dict]:
@@ -155,7 +174,13 @@ def main() -> int:
     else:
         debut, fin = semaine_precedente(aujourdhui)
     if debut > fin:
-        raise SystemExit("La date de début est postérieure à la date de fin.")
+        raise SystemExit(
+            f"La date de début ({debut}) est postérieure à la date de fin ({fin}). "
+            "Si vous n'avez rempli que « debut », la fin vaut aujourd'hui "
+            f"({aujourdhui}) : une date de début dans le futur ne peut rien couvrir."
+        )
+
+    verifier_configuration(envoi_reel=not args.essai, destinataire_fourni=bool(args.a))
 
     logger.info("Période : %s → %s", debut, fin)
     par_commerce = rassembler(client_admin(), debut, fin)
