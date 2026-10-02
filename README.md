@@ -160,7 +160,7 @@ Tableau de bord → onglet **🧂 Produits** :
 
 ## 6. Lire les indicateurs
 
-Tableau de bord → onglet **📊 Indicateurs**, le premier. Choisissez la période
+Tableau de bord → onglet **📊 Indicateurs**, en deuxième position. Choisissez la période
 (30 jours, 90 jours, 12 mois) : chaque écart se compare à la période
 précédente **de même durée**.
 

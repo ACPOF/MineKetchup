@@ -5,9 +5,9 @@ Page volontairement absente du menu de navigation : on y accède par son
 adresse directe (.../Tableau_de_bord), et elle reste protégée par mot de passe.
 
 Quatre sections, protégées par le même mot de passe (secret ADMIN_PASSWORD) :
-  1. Indicateurs: ventes, commandes, délais, produits et détaillants les plus
+  1. Commandes  : consulter les commandes reçues et changer leur statut.
+  2. Indicateurs: ventes, commandes, délais, produits et détaillants les plus
                   actifs, et qui relancer.
-  2. Commandes  : consulter les commandes reçues et changer leur statut.
   3. Produits   : gérer le catalogue (ajouter / modifier / activer / réordonner).
   4. Détaillants: gérer les commerces autorisés à commander. C'est ici qu'on
                   ajoute un détaillant UNE SEULE FOIS et qu'on récupère son
@@ -198,8 +198,11 @@ with head_right:
         unsafe_allow_html=True,
     )
 
-tab_kpi, tab_orders, tab_products, tab_retailers = st.tabs(
-    ["📊 Indicateurs", "📋 Commandes", "🧂 Produits", "🏪 Détaillants"]
+# « Commandes » reste le premier onglet : c'est l'écran du quotidien, celui
+# qu'on ouvre pour travailler. Les indicateurs se consultent, ils n'ont pas à
+# s'interposer.
+tab_orders, tab_kpi, tab_products, tab_retailers = st.tabs(
+    ["📋 Commandes", "📊 Indicateurs", "🧂 Produits", "🏪 Détaillants"]
 )
 
 
