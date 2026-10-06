@@ -36,9 +36,13 @@ MineKetchup/
 │   ├── emails.py                 # Gabarits des trois courriels
 │   └── format.py                 # Formatage des prix (sans Streamlit)
 ├── scripts/
-│   └── rapport_hebdo.py          # Rapport des commandes pour la comptable
-├── .github/workflows/
-│   └── rapport-hebdomadaire.yml  # Déclenche le rapport chaque lundi
+│   ├── rapport_hebdo.py          # Rapport des commandes pour la comptable
+│   ├── demarrage_client.sql      # Prix, détaillants et liens — mise en service
+│   └── nettoyage_donnees_test.sql # Effacer les données d'essai avant livraison
+├── .github/
+│   ├── dependabot.yml            # Mises à jour automatiques des dépendances
+│   └── workflows/
+│       └── rapport-hebdomadaire.yml  # Déclenche le rapport chaque lundi
 ├── assets/                       # (optionnel) logo officiel — voir assets/README.md
 ├── supabase_schema.sql           # Script SQL à exécuter dans Supabase (idempotent)
 ├── requirements.txt
@@ -312,6 +316,32 @@ python scripts/rapport_hebdo.py --essai               # affiche sans envoyer
   Elle ne peut relire aucune commande, ni lire la table `retailers` complète.
 - `ADMIN_PASSWORD` est une protection simple, suffisante pour un seul
   producteur. Pour plusieurs comptes admin, migrer vers Supabase Auth.
+
+## Entretien
+
+Trois pannes de ce projet sont **silencieuses** : rien ne s'affiche à l'écran,
+et personne n'est prévenu. Elles valent la peine d'être connues.
+
+| Ce qui lâche | Comment ça se voit | Où regarder |
+|---|---|---|
+| Le mot de passe d'application courriel (révoqué, ou mot de passe du compte changé) | Les commandes continuent d'arriver, mais plus aucun courriel ne part | Streamlit → *Manage app* → journaux ; onglet Actions pour le rapport |
+| Une action GitHub devenue trop vieille pour tourner | Le rapport du lundi n'arrive plus | Onglet **Actions** du dépôt |
+| Le projet Supabase mis en pause | L'app affiche une erreur de connexion | Tableau de bord Supabase |
+
+Deux habitudes suffisent à les attraper :
+
+- **Le rapport du lundi est le signal de vie du système.** Il part même les
+  semaines sans commande, précisément pour ça. S'il n'arrive pas, quelque chose
+  est cassé — c'est le seul avertissement que vous aurez.
+- **Dependabot** (`.github/dependabot.yml`) ouvre tout seul une demande de
+  fusion quand une action ou une dépendance prend du retard. Il reste à la
+  fusionner.
+
+Le forfait gratuit de Supabase met en pause les projets inactifs ; le rapport
+hebdomadaire interroge la base chaque lundi, ce qui suffit à la garder éveillée.
+
+Reste à décider, au moment de la remise : **qui regarde** si le rapport du lundi
+n'arrive pas. Sans réponse à cette question, une panne peut durer des semaines.
 
 ## Habillage visuel
 
