@@ -1,0 +1,26 @@
+# Dependabot ouvre tout seul une demande de fusion quand une dépendance prend du
+# retard. C'est la réponse à la panne la plus sournoise du projet : une action
+# GitHub qui vieillit jusqu'à ne plus tourner, et un rapport hebdomadaire qui
+# cesse d'arriver sans que personne ne soit prévenu.
+version: 2
+updates:
+  # Les actions du workflow du rapport (checkout, setup-python).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "Actions"
+
+  # Streamlit, supabase, pandas, altair.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "Dépendances"
+    # Une mise à jour majeure de Streamlit peut casser l'interface : on la
+    # laisse de côté, les correctifs et versions mineures suffisent.
+    ignore:
+      - dependency-name: streamlit
+        update-types: ["version-update:semver-major"]
