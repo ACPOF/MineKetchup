@@ -239,6 +239,27 @@ grant execute on function retailer_by_code(text) to anon, authenticated;
 -- Note : aucune policy SELECT/UPDATE/DELETE publique sur orders/order_items.
 
 -- ============================================================
+-- Droits d'accès aux tables (GRANT)
+-- ------------------------------------------------------------
+-- RLS filtre les LIGNES ; encore faut-il que le rôle ait le droit
+-- d'interroger la TABLE. Les anciens projets Supabase accordaient ces droits
+-- d'office à anon / authenticated / service_role ; les projets récents ne le
+-- font plus pour les tables créées en SQL. Sans ces lignes, la page de
+-- commande échoue avec « permission denied for table products » (42501).
+--
+-- On les donne donc explicitement, au plus juste : la clé anon reçoit
+-- exactement ce que les policies ci-dessus autorisent, rien de plus.
+-- ============================================================
+
+revoke all on retailers, products, orders, order_items from anon, authenticated;
+
+grant select on products to anon;
+grant insert on orders, order_items to anon;
+
+-- Tableau de bord et rapport hebdomadaire (clé service_role, côté serveur).
+grant all on retailers, products, orders, order_items to service_role;
+
+-- ============================================================
 -- Catalogue de départ — vrais produits Mine de Ketchup
 -- ------------------------------------------------------------
 -- Les 3 produits d'exemple de la première version sont retirés.
