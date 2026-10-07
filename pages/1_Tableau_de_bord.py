@@ -26,6 +26,7 @@ import pandas as pd
 import streamlit as st
 
 from lib import indicateurs as ind
+from lib import photos
 from lib.branding import BRAND, brand_header, inject_theme, money
 from lib.supabase_client import get_admin_client
 
@@ -45,6 +46,11 @@ STATUS_ICON = {
     "annulée": "⚪",
 }
 OPEN_STATUSES = ["nouvelle", "en préparation", "prête"]
+
+PHOTO_HELP = (
+    "Cliquez ou glissez une photo (JPG, PNG ou WebP). Elle est redressée et "
+    "réduite automatiquement pour s'afficher vite sur téléphone."
+)
 
 # Même alphabet que la fonction gen_retailer_code() de supabase_schema.sql :
 # sans caractères ambigus (ni O/0, ni I/1), donc dictable au téléphone.
@@ -616,12 +622,28 @@ with tab_products:
                         value=float(product["price"]) if product.get("price") is not None else 0.0,
                         help="0 = aucun prix affiché aux détaillants.",
                     )
-                    image_url = st.text_input(
-                        "URL de l'image", value=product.get("image_url") or "",
-                        placeholder="https://…/ketchup-classique.jpg",
+                    current_image = product.get("image_url") or ""
+                    if current_image:
+                        st.image(current_image, width=140, caption="Photo actuelle")
+                    photo = st.file_uploader(
+                        "Nouvelle photo" if current_image else "Photo du produit",
+                        type=photos.TYPES,
+                        key=f"photo_{product['id']}",
+                        help=PHOTO_HELP,
+                    )
+                    remove_image = (
+                        st.checkbox("Retirer la photo", key=f"rm_photo_{product['id']}")
+                        if current_image
+                        else False
                     )
                     if st.form_submit_button("Enregistrer", type="primary"):
                         try:
+                            if photo is not None:
+                                image_url = photos.televerser(client, photo)
+                            elif remove_image:
+                                image_url = ""
+                            else:
+                                image_url = current_image
                             client.table("products").update(
                                 {
                                     "name": name.strip(),
@@ -652,12 +674,13 @@ with tab_products:
             n_cat = n1.text_input("Catégorie", placeholder="Ketchups")
             n_unit = n2.text_input("Format / unité", value="bouteille 350 ml")
             n_price = n3.number_input("Prix ($)", min_value=0.0, step=0.25, format="%.2f")
-            n_image = st.text_input("URL de l'image")
+            n_photo = st.file_uploader("Photo du produit", type=photos.TYPES, help=PHOTO_HELP)
             if st.form_submit_button("Ajouter au catalogue", type="primary"):
                 if not n_name.strip():
                     st.error("Le nom est requis.")
                 else:
                     try:
+                        n_image = photos.televerser(client, n_photo) if n_photo is not None else ""
                         client.table("products").insert(
                             {
                                 "name": n_name.strip(),

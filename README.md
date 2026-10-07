@@ -34,6 +34,7 @@ MineKetchup/
 │   ├── settings.py               # Config : env → st.secrets → secrets.toml
 │   ├── mailer.py                 # Envoi SMTP (jamais bloquant)
 │   ├── emails.py                 # Gabarits des trois courriels
+│   ├── photos.py                 # Photos produits : réduction + Supabase Storage
 │   └── format.py                 # Formatage des prix (sans Streamlit)
 ├── scripts/
 │   ├── rapport_hebdo.py          # Rapport des commandes pour la comptable
@@ -156,7 +157,12 @@ l'onglet Détaillants). Ça reste l'exception, pas le chemin normal.
 Tableau de bord → onglet **🧂 Produits** :
 
 - **➕ Ajouter un produit** : nom, description, catégorie, format/unité, prix,
-  URL d'image.
+  photo.
+- **Photo** : cliquez sur *Browse files* (ou glissez le fichier) dans la fiche
+  du produit. JPG, PNG ou WebP, depuis l'ordinateur ou le téléphone. La photo
+  est redressée, réduite à 1200 px et convertie en JPEG léger avant d'être
+  rangée dans Supabase Storage (compartiment public `produits`, créé tout
+  seul au premier envoi). « Retirer la photo » la retire de la fiche.
 - **Modifier** : ouvre le formulaire d'édition d'un produit.
 - **Désactiver / Activer** : retire ou remet un produit dans la page de
   commande, sans toucher à l'historique des commandes.
@@ -376,4 +382,3 @@ rappelle ce qui manque tant que la commande est incomplète.
   hebdomadaire en joint déjà un, par courriel).
 - Historique des commandes par détaillant dans le tableau de bord.
 - Envoi automatique du lien personnel par courriel à l'ajout d'un détaillant.
-- Photos des produits (ajouter les URL dans l'onglet Produits).

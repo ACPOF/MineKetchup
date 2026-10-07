@@ -259,6 +259,17 @@ grant insert on orders, order_items to anon;
 -- Tableau de bord et rapport hebdomadaire (clé service_role, côté serveur).
 grant all on retailers, products, orders, order_items to service_role;
 
+-- ------------------------------------------------------------
+-- Photos des produits (Supabase Storage)
+--
+-- Compartiment public en LECTURE : la page de commande affiche les photos par
+-- leur adresse. Seul le tableau de bord (clé service_role) y écrit. Le
+-- tableau de bord le crée aussi lui-même au premier envoi s'il manque.
+-- ------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('produits', 'produits', true)
+on conflict (id) do update set public = true;
+
 -- ============================================================
 -- Catalogue de départ — vrais produits Mine de Ketchup
 -- ------------------------------------------------------------
