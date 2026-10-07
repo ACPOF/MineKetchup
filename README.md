@@ -65,7 +65,9 @@ MineKetchup/
    - la colonne **`orders.retailer_id`** et rend `orders.retailer_name`
      optionnel (il ne sert plus que de secours) ;
    - la colonne **`products.image_url`** ;
-   - les policies RLS ;
+   - les policies RLS, et les droits d'accès aux tables (`GRANT`) que les
+     projets Supabase récents n'accordent plus d'office — sans eux, la page
+     affiche « permission denied for table products » ;
    - le catalogue des 7 vrais produits (les 3 produits d'exemple sont retirés).
 3. **Project Settings → API**, notez :
    - **Project URL** → `SUPABASE_URL`
